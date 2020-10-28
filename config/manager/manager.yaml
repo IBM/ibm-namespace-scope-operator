@@ -25,6 +25,14 @@ spec:
       containers:
       - command:
         - /namespace-scope-operator-manager
+        env:
+        - name: OPERATOR_NAME
+          value: ibm-namespace-scope-operator
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
         args:
         - --enable-leader-election
         image: ibm-namespace-scope-operator:latest

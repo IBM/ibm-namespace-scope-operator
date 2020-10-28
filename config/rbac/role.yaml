@@ -1,0 +1,28 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: ibm-namespace-scope-operator
+rules:
+- apiGroups:
+  - operator.ibm.com
+  resources:
+  - namespacescopes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.ibm.com
+  resources:
+  - namespacescopes/status
+  verbs:
+  - get
+  - patch
+  - update

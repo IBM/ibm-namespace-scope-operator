@@ -24,7 +24,9 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog"
@@ -59,6 +61,12 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	if err := r.CreateUpdateConfigMap(instance); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	if err := r.ProjectRoles(instance); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
 	return ctrl.Result{}, nil
 }
 
@@ -102,7 +110,106 @@ func (r *NamespaceScopeReconciler) CreateUpdateConfigMap(instance *operatorv1.Na
 			}
 		}
 	}
+	return nil
+}
 
+func (r *NamespaceScopeReconciler) ProjectRoles(instance *operatorv1.NamespaceScope) error {
+	fromNs, err := GetOperatorNamespace()
+	if err != nil {
+		return err
+	}
+	saNames, err := r.GetServiceAccountFromNamespace(fromNs)
+	if err != nil {
+		return err
+	}
+	if validatedNs, err := r.GetValidatedNamespaces(instance); err != nil {
+		return err
+	} else {
+		for _, toNs := range strings.Split(validatedNs, ",") {
+			if err := r.CreateRole(fromNs, toNs); err != nil {
+				return err
+			}
+			for _, saName := range saNames {
+				if err := r.CreateRoleBinding(saName, fromNs, toNs); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(namespace string) ([]string, error) {
+	sas := &corev1.ServiceAccountList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+	if err := r.List(ctx, sas, opts...); err != nil {
+		return nil, err
+	}
+	var saNames []string
+	for _, sa := range sas.Items {
+		if sa.Name == "default" || sa.Name == "deployer" || sa.Name == "builder" {
+			continue
+		}
+		saNames = append(saNames, sa.Name)
+	}
+	return saNames, nil
+}
+
+func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
+	name := "role-from-" + fromNs
+	namespace := toNs
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"projectedfrom": fromNs,
+			},
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:     []string{"*"},
+				APIGroups: []string{"*"},
+				Resources: []string{"*"},
+			},
+		},
+	}
+	if err := r.Create(ctx, role); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) CreateRoleBinding(saName, fromNs, toNs string) error {
+	name := saName + "-in-" + fromNs
+	namespace := toNs
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"projectedfrom": fromNs,
+			},
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      saName,
+				Namespace: fromNs,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "Role",
+			Name:     "role-from-" + fromNs,
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+
+	if err := r.Create(ctx, roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
 	return nil
 }
 

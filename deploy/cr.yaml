@@ -1,0 +1,17 @@
+apiVersion: operator.ibm.com/v1
+kind: NamespaceScope
+metadata:
+  name: namespacescope
+  namespace: ibm-common-services
+spec:
+  # Namespaces that are part of this scope
+  namespaceMembers:
+  - ibm-common-services
+  - default
+
+  # ConfigMap name that will contain the list of namespaces to be watched
+  configmapName: namespace-scope
+
+  # Restart pods with the following labels when the namspace list changes
+  restartLabels:
+    intent: projected

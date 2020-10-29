@@ -141,6 +141,12 @@ When the `NamespaceScope` CR is created/updated, it will:
 ```
 git clone https://github.com/IBM/ibm-namespace-scope-operator.git
 cd ibm-namespace-scope-operator
-oc apply -f config/crd/bases/operator.ibm.com_namespacescopes.yaml
-make run
+
+oc apply -f deploy/operator.ibm.com_namespacescopes.yaml
+oc -n ibm-common-services apply -f deploy/service_account.yaml
+oc -n ibm-common-services apply -f deploy/role.yaml
+oc -n ibm-common-services apply -f deploy/role_binding.yaml
+oc -n ibm-common-services apply -f deploy/operator.yaml
+
+oc -n ibm-common-services apply -f deploy/cr.yaml
 ```

@@ -5,17 +5,9 @@ metadata:
 spec:
   # Namespaces that are part of this scope
   namespaceMembers:
-  - cp4i
+  - ibm-common-services
   - default
-
-  # ConfigMap name that will contain the list of namespaces to be watched
-  configmapName: namespace-scope
 
   # Restart pods with the following labels when the namspace list changes
   restartLabels:
     intent: projected
-
-  # Set the following to true to manaually manage permissions for the NamespaceScope operator to extend control over other namespaces
-  # The operator may fail when trying to extend permissions to other namespaces, but the cluster administrator can correct this using the
-  # authorize-namespace command.
-  manualManagement: false

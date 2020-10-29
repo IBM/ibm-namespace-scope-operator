@@ -1,0 +1,34 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ibm-namespace-scope-operator
+  labels:
+    app: ibm-namespace-scope-operator
+spec:
+  selector:
+    matchLabels:
+      app: ibm-namespace-scope-operator
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ibm-namespace-scope-operator
+    spec:
+      serviceAccountName: ibm-namespace-scope-operator
+      containers:
+      - command:
+        - /namespace-scope-operator-manager
+        env:
+        - name: OPERATOR_NAME
+          value: ibm-namespace-scope-operator
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        args:
+        - --enable-leader-election=false
+        image: quay.io/opencloudio/ibm-namespace-scope-operator:latest
+        name: manager
+      terminationGracePeriodSeconds: 10

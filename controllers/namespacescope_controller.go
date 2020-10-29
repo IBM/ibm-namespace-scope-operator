@@ -99,11 +99,14 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 			cm.Name = cmName
 			cm.Namespace = cmNamespace
 			cm.Data = make(map[string]string)
-			cm.Data["namespaces"] = instance.Namespace
+			cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 
 			if err := r.Create(ctx, cm); err != nil {
+				klog.Errorf("Failed to create ConfigMap %s in namespace %s: %v", cmName, cmNamespace, err)
 				return err
 			}
+
+			klog.Infof("Created ConfigMap %s in namespace %s", cmName, cmNamespace)
 			return nil
 		}
 		return err
@@ -122,6 +125,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	if strings.Join(instance.Spec.NamespaceMembers, ",") != cm.Data["namespaces"] {
 		cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 		if err := r.Update(ctx, cm); err != nil {
+			klog.Errorf("Failed to update ConfigMap %s in namespace %s: %v", "namespace-scope", instance.Namespace, err)
 			return err
 		}
 	}
@@ -173,10 +177,10 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 			return err
 		}
 		if restart {
-			klog.Infof("Restarting pods in namespace %s with matching labels: %v", toNs, instance.Spec.RestartLabels)
-			// if err := r.RestartPods(instance.Spec.RestartLabels, toNs); err != nil {
-			// 	return err
-			// }
+			klog.Infof("Restarting pods in namespace %s with matching labels: %v", fromNs, instance.Spec.RestartLabels)
+			if err := r.RestartPods(instance.Spec.RestartLabels, fromNs); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -222,8 +226,11 @@ func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
 	}
 	err := r.Create(ctx, role)
 	if err == nil {
-		klog.Infof("Create role %s in namespace %s", name, namespace)
+		klog.Infof("Created role %s in namespace %s", name, namespace)
+	} else if !errors.IsAlreadyExists(err) {
+		klog.Errorf("Failed to create role %s in namespace %s: %v", name, namespace, err)
 	}
+
 	return err
 }
 
@@ -236,6 +243,8 @@ func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
 	if err == nil {
 		klog.Infof("Delete role with label %s from namespace %s", "projectedfrom: "+fromNs, toNs)
 	}
+
+	klog.Errorf("Failed to delete role with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
 	return err
 }
 
@@ -269,10 +278,11 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 
 	err := r.Create(ctx, roleBinding)
 	if err == nil {
-		klog.Infof("Create rolebinding %s in namespace %s", name, namespace)
+		klog.Infof("Created rolebinding %s in namespace %s", name, namespace)
 	} else {
 		if errors.IsAlreadyExists(err) {
 			if err := r.Update(ctx, roleBinding); err != nil {
+				klog.Errorf("Failed to update rolebinding %s in namespace %s: %v", name, namespace, err)
 				return err
 			}
 			klog.Infof("Update rolebinding %s in namespace %s", name, namespace)
@@ -290,6 +300,8 @@ func (r *NamespaceScopeReconciler) DeleteRoleBinding(fromNs, toNs string) error 
 	if err == nil {
 		klog.Infof("Delete rolebinding with label %s from namespace %s", "projectedfrom: "+fromNs, toNs)
 	}
+
+	klog.Errorf("Failed to delete rolebinding with label %s from namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
 	return err
 }
 

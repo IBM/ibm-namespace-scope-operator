@@ -35,18 +35,19 @@ import (
 	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
 )
 
-var ctx context.Context
+const (
+	NamespaceScopeManagedRoleName        = "ibm-namespace-scope-operator-managed-role"
+	NamespaceScopeManagedRoleBindingName = "ibm-namespace-scope-operator-managed-rolebinding"
+	NamespaceScopeConfigmapName          = "namespace-scope"
+)
 
-// var validatedNs []string
+var ctx context.Context
 
 // NamespaceScopeReconciler reconciles a NamespaceScope object
 type NamespaceScopeReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
-
-// +kubebuilder:rbac:groups=operator.ibm.com,resources=namespacescopes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=operator.ibm.com,resources=namespacescopes/status,verbs=get;update;patch
 
 func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx = context.Background()
@@ -59,15 +60,6 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	}
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
-	// // Get all validated namespace list
-	// if err := r.GetValidatedNamespaces(instance); err != nil {
-	// 	return ctrl.Result{}, err
-	// }
-	// if len(validatedNs) == 0 {
-	// 	klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
-	// 	return ctrl.Result{}, nil
-	// }
-
 	if err := r.InitConfigMap(instance); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -90,7 +82,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 
 func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmName := "namespace-scope"
+	cmName := NamespaceScopeConfigmapName
 	cmNamespace := instance.Namespace
 
 	if err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: cmNamespace}, cm); err != nil {
@@ -116,7 +108,7 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 
 func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Name: "namespace-scope", Namespace: instance.Namespace}
+	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		return err
 	}
@@ -134,7 +126,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Name: "namespace-scope", Namespace: instance.Namespace}
+	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		return err
 	}
@@ -153,6 +145,10 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 			return err
 		}
 	}
+	// When role and rolebinding are deleted, restart all the pods
+	if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -163,9 +159,8 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	if err != nil {
 		return err
 	}
-
+	restart := false
 	for _, toNs := range instance.Spec.NamespaceMembers {
-		restart := false
 		if err := r.CreateRole(fromNs, toNs); err == nil {
 			restart = true
 		} else if !errors.IsAlreadyExists(err) {
@@ -176,14 +171,13 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		} else if !errors.IsAlreadyExists(err) {
 			return err
 		}
-		if restart {
-			klog.Infof("Restarting pods in namespace %s with matching labels: %v", fromNs, instance.Spec.RestartLabels)
-			if err := r.RestartPods(instance.Spec.RestartLabels, fromNs); err != nil {
-				return err
-			}
+	}
+	// When have new role and rolebinding create or update, restart all the pods
+	if restart {
+		if err := r.RestartPods(instance.Spec.RestartLabels, fromNs); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
@@ -197,7 +191,9 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(namespace stri
 	}
 	var saNames []string
 	for _, sa := range sas.Items {
-		if sa.Name == "default" || sa.Name == "deployer" || sa.Name == "builder" || sa.Name == "ibm-common-service-operator-leader-election-role" || sa.Name == "leader-election-role" {
+		if sa.Name == "default" || sa.Name == "deployer" || sa.Name == "builder" ||
+			sa.Name == "ibm-common-service-operator-leader-election-role" ||
+			sa.Name == "leader-election-role" {
 			continue
 		}
 		saNames = append(saNames, sa.Name)
@@ -206,7 +202,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(namespace stri
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
-	name := "ibm-namespace-scope-operator-managed-role"
+	name := NamespaceScopeManagedRoleName
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -249,7 +245,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
 }
 
 func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fromNs, toNs string) error {
-	name := "ibm-namespace-scope-operator-managed-rolebinding"
+	name := NamespaceScopeManagedRoleBindingName
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -271,7 +267,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     "ibm-namespace-scope-operator-managed-role",
+			Name:     NamespaceScopeManagedRoleName,
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
@@ -304,25 +300,6 @@ func (r *NamespaceScopeReconciler) DeleteRoleBinding(fromNs, toNs string) error 
 	klog.Errorf("Failed to delete rolebinding with label %s from namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
 	return err
 }
-
-// func (r *NamespaceScopeReconciler) GetValidatedNamespaces(instance *operatorv1.NamespaceScope) error {
-// 	validatedNs = []string{}
-// 	for _, nsMem := range instance.Spec.NamespaceMembers {
-// 		ns := &corev1.Namespace{}
-// 		key := types.NamespacedName{Name: nsMem}
-// 		if err := r.Get(ctx, key, ns); err != nil {
-// 			if errors.IsNotFound(err) {
-// 				klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
-// 				continue
-// 			} else {
-// 				return err
-// 			}
-// 		}
-// 		validatedNs = append(validatedNs, nsMem)
-// 	}
-// 	klog.Infof("Validate namespaces: %s", validatedNs)
-// 	return nil
-// }
 
 // Restart pods in specific namespace with the matching labels
 func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespace string) error {

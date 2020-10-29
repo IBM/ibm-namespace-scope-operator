@@ -155,7 +155,7 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 
 func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
 	fromNs := instance.Namespace
-	saNames, err := r.GetServiceAccountFromNamespace(fromNs)
+	saNames, err := r.GetServiceAccountFromNamespace(instance.Spec.RestartLabels, fromNs)
 	if err != nil {
 		return err
 	}
@@ -181,23 +181,30 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(namespace string) ([]string, error) {
-	sas := &corev1.ServiceAccountList{}
+func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[string]string, namespace string) ([]string, error) {
+	pods := &corev1.PodList{}
 	opts := []client.ListOption{
+		client.MatchingLabels(labels),
 		client.InNamespace(namespace),
 	}
-	if err := r.List(ctx, sas, opts...); err != nil {
+
+	if err := r.List(ctx, pods, opts...); err != nil {
 		return nil, err
 	}
+
+	uniqueSaNames := make(map[string]struct{})
 	var saNames []string
-	for _, sa := range sas.Items {
-		if sa.Name == "default" || sa.Name == "deployer" || sa.Name == "builder" ||
-			sa.Name == "ibm-common-service-operator-leader-election-role" ||
-			sa.Name == "leader-election-role" {
-			continue
+
+	for _, pod := range pods.Items {
+		if len(pod.Spec.ServiceAccountName) != 0 {
+			uniqueSaNames[pod.Spec.ServiceAccountName] = struct{}{}
 		}
-		saNames = append(saNames, sa.Name)
 	}
+
+	for key := range uniqueSaNames {
+		saNames = append(saNames, key)
+	}
+
 	return saNames, nil
 }
 

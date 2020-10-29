@@ -192,18 +192,15 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 		return nil, err
 	}
 
-	uniqueSaNames := make(map[string]struct{})
 	var saNames []string
 
 	for _, pod := range pods.Items {
 		if len(pod.Spec.ServiceAccountName) != 0 {
-			uniqueSaNames[pod.Spec.ServiceAccountName] = struct{}{}
+			saNames = append(saNames, pod.Spec.ServiceAccountName)
 		}
 	}
 
-	for key := range uniqueSaNames {
-		saNames = append(saNames, key)
-	}
+	saNames = util.makeSet(saNames).ToSlice()
 
 	return saNames, nil
 }

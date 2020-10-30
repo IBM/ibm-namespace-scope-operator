@@ -17,24 +17,31 @@
 package common
 
 import (
-	"fmt"
-
 	gset "github.com/deckarep/golang-set"
 )
 
-func makeSet(strs []string) gset.Set {
+func MakeSet(strs []string) gset.Set {
 	set := gset.NewSet()
 	for _, str := range strs {
 		set.Add(str)
 	}
 	return set
 }
+
+func ToStringSlice(set gset.Set) []string {
+	var strSlice []string
+	for s := range set.Iter() {
+		strSlice = append(strSlice, s.(string))
+	}
+	return strSlice
+}
+
 func GetListDifference(slice1 []string, slice2 []string) []string {
-	set1 := makeSet(slice1)
-	set2 := makeSet(slice2)
+	set1 := MakeSet(slice1)
+	set2 := MakeSet(slice2)
 	var diff []string
 	for s := range set1.Difference(set2).Iter() {
-		diff = append(diff, fmt.Sprintf("%v", s))
+		diff = append(diff, s.(string))
 	}
 	return diff
 }

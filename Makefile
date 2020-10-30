@@ -118,6 +118,10 @@ deploy: manifests ## Deploy controller in the configured Kubernetes cluster in ~
 	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(IMAGE_REPO)/$(OPERATOR_IMAGE_NAME):$(OPERATOR_VERSION)
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
+undeploy: ## Undeploy controller in the configured Kubernetes cluster in ~/.kube/config
+	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(IMAGE_REPO)/$(OPERATOR_IMAGE_NAME):$(OPERATOR_VERSION)
+	$(KUSTOMIZE) build config/default | kubectl delete -f -
+
 ##@ Generate code and manifests
 
 manifests: ## Generate manifests e.g. CRD, RBAC etc.
@@ -147,7 +151,7 @@ build-operator-image: ## Build the operator image.
 	@echo "Building the $(OPERATOR_IMAGE_NAME) docker image for $(LOCAL_ARCH)..."
 	@docker build -t $(REGISTRY)/$(OPERATOR_IMAGE_NAME)-$(LOCAL_ARCH):$(VERSION) \
 	--build-arg VCS_REF=$(VCS_REF) --build-arg VCS_URL=$(VCS_URL) \
-	--build-arg GOARCH=$(LOCAL_ARCH) --build-arg ARCH=$(LOCAL_ARCH) -f Dockerfile .
+	--build-arg GOARCH=$(LOCAL_ARCH) -f Dockerfile .
 
 ##@ Release
 

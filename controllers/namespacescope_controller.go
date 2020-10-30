@@ -113,11 +113,14 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 		return err
 	}
 
-	// If NamespaceMembers changed, update ConfigMap
+	// If NamespaceMembers changed, update ConfigMap and restart Pods
 	if strings.Join(instance.Spec.NamespaceMembers, ",") != cm.Data["namespaces"] {
 		cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 		if err := r.Update(ctx, cm); err != nil {
 			klog.Errorf("Failed to update ConfigMap %s in namespace %s: %v", "namespace-scope", instance.Namespace, err)
+			return err
+		}
+		if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
 			return err
 		}
 	}
@@ -145,10 +148,6 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 			return err
 		}
 	}
-	// When role and rolebinding are deleted, restart all the pods
-	if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
-		return err
-	}
 
 	return nil
 }
@@ -159,25 +158,19 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	if err != nil {
 		return err
 	}
-	restart := false
 	for _, toNs := range instance.Spec.NamespaceMembers {
-		if err := r.CreateRole(fromNs, toNs); err == nil {
-			restart = true
-		} else if !errors.IsAlreadyExists(err) {
-			return err
+		if err := r.CreateRole(fromNs, toNs); err != nil {
+			if !errors.IsAlreadyExists(err) {
+				return err
+			}
 		}
-		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err == nil {
-			restart = true
-		} else if !errors.IsAlreadyExists(err) {
-			return err
-		}
-	}
-	// When have new role and rolebinding create or update, restart all the pods
-	if restart {
-		if err := r.RestartPods(instance.Spec.RestartLabels, fromNs); err != nil {
-			return err
+		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err != nil {
+			if !errors.IsAlreadyExists(err) {
+				return err
+			}
 		}
 	}
+
 	return nil
 }
 

@@ -200,7 +200,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 		}
 	}
 
-	saNames = util.makeSet(saNames).ToSlice()
+	saNames = util.ToStringSlice(util.MakeSet(saNames))
 
 	return saNames, nil
 }

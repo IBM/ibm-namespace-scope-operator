@@ -99,6 +99,9 @@ code-dev: ## Run the default dev commands which are the go tidy, fmt, vet then e
 	- make code-fmt
 	- make code-vet
 
+check: ## Check code lint error
+	make lint-all
+
 build: ## Build manager binary
 	go build -o bin/manager main.go
 

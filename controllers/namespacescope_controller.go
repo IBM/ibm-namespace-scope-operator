@@ -36,8 +36,8 @@ import (
 )
 
 const (
-	NamespaceScopeManagedRoleName        = "ibm-namespace-scope-operator-managed-role"
-	NamespaceScopeManagedRoleBindingName = "ibm-namespace-scope-operator-managed-rolebinding"
+	NamespaceScopeManagedRoleName        = "namespacescope-managed-role-from-"
+	NamespaceScopeManagedRoleBindingName = "namespacescope-managed-rolebinding-from-"
 	NamespaceScopeConfigmapName          = "namespace-scope"
 )
 
@@ -97,7 +97,6 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 				klog.Errorf("Failed to create ConfigMap %s in namespace %s: %v", cmName, cmNamespace, err)
 				return err
 			}
-
 			klog.Infof("Created ConfigMap %s in namespace %s", cmName, cmNamespace)
 			return nil
 		}
@@ -110,17 +109,40 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Not found ConfigMap %s in namespace %s", NamespaceScopeConfigmapName, instance.Namespace)
+			return nil
+		}
 		return err
 	}
 
-	// If NamespaceMembers changed, update ConfigMap and restart Pods
+	// If NamespaceMembers changed, update ConfigMap
 	if strings.Join(instance.Spec.NamespaceMembers, ",") != cm.Data["namespaces"] {
 		cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 		if err := r.Update(ctx, cm); err != nil {
 			klog.Errorf("Failed to update ConfigMap %s in namespace %s: %v", "namespace-scope", instance.Namespace, err)
 			return err
 		}
+
+		// When the configmap updated, restart all the pods with the RestartLabels
 		if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
+	fromNs := instance.Namespace
+	saNames, err := r.GetServiceAccountFromNamespace(instance.Spec.RestartLabels, fromNs)
+	if err != nil {
+		return err
+	}
+	for _, toNs := range instance.Spec.NamespaceMembers {
+		if err := r.CreateRole(fromNs, toNs); err != nil {
+			return err
+		}
+		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err != nil {
 			return err
 		}
 	}
@@ -148,29 +170,6 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 			return err
 		}
 	}
-
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
-	fromNs := instance.Namespace
-	saNames, err := r.GetServiceAccountFromNamespace(instance.Spec.RestartLabels, fromNs)
-	if err != nil {
-		return err
-	}
-	for _, toNs := range instance.Spec.NamespaceMembers {
-		if err := r.CreateRole(fromNs, toNs); err != nil {
-			if !errors.IsAlreadyExists(err) {
-				return err
-			}
-		}
-		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err != nil {
-			if !errors.IsAlreadyExists(err) {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -182,6 +181,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 	}
 
 	if err := r.List(ctx, pods, opts...); err != nil {
+		klog.Errorf("Cannot list pods with labels %v in namespace %s: %v", labels, namespace, err)
 		return nil, err
 	}
 
@@ -199,7 +199,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
-	name := NamespaceScopeManagedRoleName
+	name := NamespaceScopeManagedRoleName + fromNs
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -217,14 +217,15 @@ func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
 			},
 		},
 	}
-	err := r.Create(ctx, role)
-	if err == nil {
-		klog.Infof("Created role %s in namespace %s", name, namespace)
-	} else if !errors.IsAlreadyExists(err) {
-		klog.Errorf("Failed to create role %s in namespace %s: %v", name, namespace, err)
+	if err := r.Create(ctx, role); err != nil {
+		if !errors.IsAlreadyExists(err) {
+			klog.Errorf("Failed to create role %s in namespace %s: %v", name, namespace, err)
+			return err
+		}
+		return nil
 	}
-
-	return err
+	klog.Infof("Created role %s in namespace %s", name, namespace)
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
@@ -232,17 +233,16 @@ func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
 		client.MatchingLabels(map[string]string{"projectedfrom": fromNs}),
 		client.InNamespace(toNs),
 	}
-	err := r.DeleteAllOf(ctx, &rbacv1.Role{}, opts...)
-	if err == nil {
-		klog.Infof("Delete role with label %s from namespace %s", "projectedfrom: "+fromNs, toNs)
+	if err := r.DeleteAllOf(ctx, &rbacv1.Role{}, opts...); err != nil {
+		klog.Errorf("Failed to delete role with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
+		return err
 	}
-
-	klog.Errorf("Failed to delete role with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
-	return err
+	klog.Infof("Deleted role with label %s in namespace %s", "projectedfrom: "+fromNs, toNs)
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fromNs, toNs string) error {
-	name := NamespaceScopeManagedRoleBindingName
+	name := NamespaceScopeManagedRoleBindingName + fromNs
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -264,24 +264,25 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     NamespaceScopeManagedRoleName,
+			Name:     NamespaceScopeManagedRoleName + fromNs,
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
 
-	err := r.Create(ctx, roleBinding)
-	if err == nil {
-		klog.Infof("Created rolebinding %s in namespace %s", name, namespace)
-	} else {
+	if err := r.Create(ctx, roleBinding); err != nil {
 		if errors.IsAlreadyExists(err) {
 			if err := r.Update(ctx, roleBinding); err != nil {
 				klog.Errorf("Failed to update rolebinding %s in namespace %s: %v", name, namespace, err)
 				return err
 			}
-			klog.Infof("Update rolebinding %s in namespace %s", name, namespace)
+			klog.Infof("Updated rolebinding %s in namespace %s", name, namespace)
+			return nil
 		}
+		klog.Errorf("Failed to create rolebinding %s in namespace %s: %v", name, namespace, err)
+		return err
 	}
-	return err
+	klog.Infof("Created rolebinding %s in namespace %s", name, namespace)
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) DeleteRoleBinding(fromNs, toNs string) error {
@@ -289,13 +290,12 @@ func (r *NamespaceScopeReconciler) DeleteRoleBinding(fromNs, toNs string) error 
 		client.MatchingLabels(map[string]string{"projectedfrom": fromNs}),
 		client.InNamespace(toNs),
 	}
-	err := r.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, opts...)
-	if err == nil {
-		klog.Infof("Delete rolebinding with label %s from namespace %s", "projectedfrom: "+fromNs, toNs)
+	if err := r.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, opts...); err != nil {
+		klog.Errorf("Failed to delete rolebinding with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
+		return err
 	}
-
-	klog.Errorf("Failed to delete rolebinding with label %s from namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
-	return err
+	klog.Infof("Deleted rolebinding with label %s in namespace %s", "projectedfrom: "+fromNs, toNs)
+	return nil
 }
 
 // Restart pods in specific namespace with the matching labels
@@ -306,6 +306,7 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespa
 		client.InNamespace(namespace),
 	}
 	if err := r.DeleteAllOf(ctx, &corev1.Pod{}, opts...); err != nil {
+		klog.Errorf("Failed to restart pods with matching label %s in namespace %s: %v", labels, namespace, err)
 		return err
 	}
 	return nil

@@ -44,7 +44,7 @@ spec:
       containers:
       - command:
         - /namespace-scope-operator-manager
-        image: danielxlee/ibm-namespace-scope-operator:1.0.0
+        image: ibm-namespace-scope-operator:1.0.0
         imagePullPolicy: Always
         name: ibm-namespace-scope-operator
         env:

@@ -105,7 +105,7 @@ check: ## Check code lint error
 build: ## Build manager binary
 	go build -o bin/manager main.go
 
-run: generate code-fmt code-vet manifests ## Run against the configured Kubernetes cluster in ~/.kube/config
+run: generate code-fmt code-vet manifests check ## Run against the configured Kubernetes cluster in ~/.kube/config
 	OPERATOR_NAMESPACE=ibm-common-services go run ./main.go
 
 install: manifests ## Install CRDs into a cluster

@@ -110,7 +110,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
-			klog.Infof("Not found ConfigMap %s in namespace %s", NamespaceScopeConfigmapName, instance.Namespace)
+			klog.Infof("Not found ConfigMap %s", cmKey.String())
 			return nil
 		}
 		return err
@@ -120,7 +120,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	if strings.Join(instance.Spec.NamespaceMembers, ",") != cm.Data["namespaces"] {
 		cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 		if err := r.Update(ctx, cm); err != nil {
-			klog.Errorf("Failed to update ConfigMap %s in namespace %s: %v", "namespace-scope", instance.Namespace, err)
+			klog.Errorf("Failed to update ConfigMap %s : %v", cmKey.String(), err)
 			return err
 		}
 
@@ -153,6 +153,7 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
+		klog.Errorf("Not found ConfigMap %s", cmKey.String())
 		return err
 	}
 
@@ -218,13 +219,13 @@ func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
 		},
 	}
 	if err := r.Create(ctx, role); err != nil {
-		if !errors.IsAlreadyExists(err) {
-			klog.Errorf("Failed to create role %s in namespace %s: %v", name, namespace, err)
-			return err
+		if errors.IsAlreadyExists(err) {
+			return nil
 		}
-		return nil
+		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
+		return err
 	}
-	klog.Infof("Created role %s in namespace %s", name, namespace)
+	klog.Infof("Created role %s/%s", namespace, name)
 	return nil
 }
 
@@ -271,17 +272,32 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 
 	if err := r.Create(ctx, roleBinding); err != nil {
 		if errors.IsAlreadyExists(err) {
-			if err := r.Update(ctx, roleBinding); err != nil {
-				klog.Errorf("Failed to update rolebinding %s in namespace %s: %v", name, namespace, err)
+			if err := r.UpdateRoleBinding(roleBinding); err != nil {
 				return err
 			}
-			klog.Infof("Updated rolebinding %s in namespace %s", name, namespace)
 			return nil
 		}
-		klog.Errorf("Failed to create rolebinding %s in namespace %s: %v", name, namespace, err)
+		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
 		return err
 	}
-	klog.Infof("Created rolebinding %s in namespace %s", name, namespace)
+	klog.Infof("Created rolebinding %s/%s", namespace, name)
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) UpdateRoleBinding(newRoleBinding *rbacv1.RoleBinding) error {
+	currentRoleBinding := &rbacv1.RoleBinding{}
+	currentRoleBindingKey := types.NamespacedName{Name: newRoleBinding.Name, Namespace: newRoleBinding.Namespace}
+	if err := r.Get(ctx, currentRoleBindingKey, currentRoleBinding); err != nil {
+		klog.Errorf("Cannot get rolebinding %s: %v", currentRoleBindingKey.String(), err)
+	}
+	if len(newRoleBinding.Subjects) != len(currentRoleBinding.Subjects) {
+		if err := r.Update(ctx, newRoleBinding); err != nil {
+			klog.Errorf("Failed to update rolebinding %s: %v", currentRoleBindingKey.String(), err)
+			return err
+		}
+		klog.Infof("Updated rolebinding %s", currentRoleBindingKey.String())
+		return nil
+	}
 	return nil
 }
 

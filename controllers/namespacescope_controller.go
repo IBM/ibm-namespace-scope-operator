@@ -33,12 +33,7 @@ import (
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
 	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
-)
-
-const (
-	NamespaceScopeManagedRoleName        = "namespacescope-managed-role-from-"
-	NamespaceScopeManagedRoleBindingName = "namespacescope-managed-rolebinding-from-"
-	NamespaceScopeConfigmapName          = "namespace-scope"
+	"github.com/IBM/ibm-namespace-scope-operator/controllers/constant"
 )
 
 var ctx context.Context
@@ -58,6 +53,8 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	if err := r.Client.Get(ctx, req.NamespacedName, instance); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	instance = setDefaults(instance)
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
 	if err := r.InitConfigMap(instance); err != nil {
@@ -82,7 +79,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 
 func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmName := NamespaceScopeConfigmapName
+	cmName := instance.Spec.ConfigmapName
 	cmNamespace := instance.Namespace
 
 	if err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: cmNamespace}, cm); err != nil {
@@ -107,7 +104,7 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 
 func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
+	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("Not found ConfigMap %s", cmKey.String())
@@ -151,7 +148,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Name: NamespaceScopeConfigmapName, Namespace: instance.Namespace}
+	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		klog.Errorf("Not found ConfigMap %s", cmKey.String())
 		return err
@@ -200,7 +197,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
-	name := NamespaceScopeManagedRoleName + fromNs
+	name := constant.NamespaceScopeManagedRoleName + fromNs
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -243,7 +240,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
 }
 
 func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fromNs, toNs string) error {
-	name := NamespaceScopeManagedRoleBindingName + fromNs
+	name := constant.NamespaceScopeManagedRoleBindingName + fromNs
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -265,7 +262,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     NamespaceScopeManagedRoleName + fromNs,
+			Name:     constant.NamespaceScopeManagedRoleName + fromNs,
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
@@ -326,6 +323,14 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespa
 		return err
 	}
 	return nil
+}
+
+func setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope {
+	if instance.Spec.ConfigmapName == "" {
+		instance.Spec.ConfigmapName = constant.NamespaceScopeConfigmapName
+	}
+
+	return instance
 }
 
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {

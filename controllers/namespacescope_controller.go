@@ -58,6 +58,32 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Check if the NamespaceScope instance is marked to be deleted, which is
+	// indicated by the deletion timestamp being set.
+	if !instance.GetDeletionTimestamp().IsZero() {
+		if util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
+			if err := r.DeleteAllRbac(instance); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Remove NamespaceScopeFinalizer. Once all finalizers have been
+			// removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(instance, constant.NamespaceScopeFinalizer)
+			if err := r.Update(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this instance
+	if !util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
+		if err := r.addFinalizer(instance); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	instance = setDefaults(instance)
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
@@ -79,6 +105,16 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 
 	klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+}
+
+func (r *NamespaceScopeReconciler) addFinalizer(nss *operatorv1.NamespaceScope) error {
+	controllerutil.AddFinalizer(nss, constant.NamespaceScopeFinalizer)
+	if err := r.Update(ctx, nss); err != nil {
+		klog.Errorf("Failed to update NamespaceScope with finalizer: %v", err)
+		return err
+	}
+	klog.Infof("Added finalizer for the NamespaceScope instance %s/%s", nss.Namespace, nss.Name)
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceScope) error {
@@ -159,14 +195,18 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	if err != nil {
 		return err
 	}
+	labels := map[string]string{
+		"projectedfrom": instance.Namespace + "-" + instance.Name,
+	}
+
 	for _, toNs := range instance.Spec.NamespaceMembers {
-		if err := r.CreateRole(fromNs, toNs); err != nil {
+		if err := r.CreateRole(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
 			}
 			return err
 		}
-		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err != nil {
+		if err := r.CreateUpdateRoleBinding(labels, saNames, fromNs, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
 			}
@@ -190,11 +230,46 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	}
 	nsInCr := instance.Spec.NamespaceMembers
 	unmanagedNss := util.GetListDifference(nsInCm, nsInCr)
+	labels := map[string]string{
+		"projectedfrom": instance.Namespace + "-" + instance.Name,
+	}
 	for _, toNs := range unmanagedNss {
-		if err := r.DeleteRoleBinding(instance.Namespace, toNs); err != nil {
+		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				continue
+			}
 			return err
 		}
-		if err := r.DeleteRole(instance.Namespace, toNs); err != nil {
+		if err := r.DeleteRole(labels, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// When delete NamespaceScope instance, cleanup all RBAC resources
+func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceScope) error {
+	labels := map[string]string{
+		"projectedfrom": instance.Namespace + "-" + instance.Name,
+	}
+	for _, toNs := range instance.Spec.NamespaceMembers {
+		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				continue
+			}
+			return err
+		}
+		if err := r.DeleteRole(labels, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				continue
+			}
 			return err
 		}
 	}
@@ -226,16 +301,14 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 	return saNames, nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleName + fromNs
+func (r *NamespaceScopeReconciler) CreateRole(labels map[string]string, toNs string) error {
+	name := constant.NamespaceScopeManagedRoleName + labels["projectedfrom"]
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				"projectedfrom": fromNs,
-			},
+			Labels:    labels,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -256,21 +329,21 @@ func (r *NamespaceScopeReconciler) CreateRole(fromNs, toNs string) error {
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) DeleteRole(fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs string) error {
 	opts := []client.DeleteAllOfOption{
-		client.MatchingLabels(map[string]string{"projectedfrom": fromNs}),
+		client.MatchingLabels(labels),
 		client.InNamespace(toNs),
 	}
 	if err := r.DeleteAllOf(ctx, &rbacv1.Role{}, opts...); err != nil {
-		klog.Errorf("Failed to delete role with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
+		klog.Errorf("Failed to delete role with labels %v in namespace %s: %v", labels, toNs, err)
 		return err
 	}
-	klog.Infof("Deleted role with label %s in namespace %s", "projectedfrom: "+fromNs, toNs)
+	klog.Infof("Deleted role with labels %v in namespace %s", labels, toNs)
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleBindingName + fromNs
+func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]string, saNames []string, fromNs, toNs string) error {
+	name := constant.NamespaceScopeManagedRoleBindingName + labels["projectedfrom"]
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -285,9 +358,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(saNames []string, fro
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				"projectedfrom": fromNs,
-			},
+			Labels:    labels,
 		},
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
@@ -328,16 +399,16 @@ func (r *NamespaceScopeReconciler) UpdateRoleBinding(newRoleBinding *rbacv1.Role
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) DeleteRoleBinding(fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) DeleteRoleBinding(labels map[string]string, toNs string) error {
 	opts := []client.DeleteAllOfOption{
-		client.MatchingLabels(map[string]string{"projectedfrom": fromNs}),
+		client.MatchingLabels(labels),
 		client.InNamespace(toNs),
 	}
 	if err := r.DeleteAllOf(ctx, &rbacv1.RoleBinding{}, opts...); err != nil {
-		klog.Errorf("Failed to delete rolebinding with label %s in namespace %s: %v", "projectedfrom: "+fromNs, toNs, err)
+		klog.Errorf("Failed to delete rolebinding with labels %v in namespace %s: %v", labels, toNs, err)
 		return err
 	}
-	klog.Infof("Deleted rolebinding with label %s in namespace %s", "projectedfrom: "+fromNs, toNs)
+	klog.Infof("Deleted rolebinding with labels %v in namespace %s", labels, toNs)
 	return nil
 }
 
@@ -349,7 +420,7 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespa
 		client.InNamespace(namespace),
 	}
 	if err := r.DeleteAllOf(ctx, &corev1.Pod{}, opts...); err != nil {
-		klog.Errorf("Failed to restart pods with matching label %s in namespace %s: %v", labels, namespace, err)
+		klog.Errorf("Failed to restart pods with matching labels %s in namespace %s: %v", labels, namespace, err)
 		return err
 	}
 	return nil

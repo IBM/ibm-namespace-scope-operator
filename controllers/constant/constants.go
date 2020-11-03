@@ -20,4 +20,5 @@ const (
 	NamespaceScopeManagedRoleName        = "namespacescope-managed-role-from-"
 	NamespaceScopeManagedRoleBindingName = "namespacescope-managed-rolebinding-from-"
 	NamespaceScopeConfigmapName          = "namespace-scope"
+	NamespaceScopeFinalizer              = "finalizer.nss.operator.ibm.com"
 )

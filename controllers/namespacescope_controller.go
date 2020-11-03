@@ -363,7 +363,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]str
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedRoleName + fromNs,
+			Name:     constant.NamespaceScopeManagedRoleName + labels["projectedfrom"],
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}

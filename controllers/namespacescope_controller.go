@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
 	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
@@ -91,7 +93,11 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 			cm.Namespace = cmNamespace
 			cm.Data = make(map[string]string)
 			cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
-
+			// Set NamespaceScope instance as the owner of the ConfigMap.
+			if err := controllerutil.SetControllerReference(instance, cm, r.Scheme); err != nil {
+				klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cmNamespace, cmName, err)
+				return err
+			}
 			if err := r.Create(ctx, cm); err != nil {
 				klog.Errorf("Failed to create ConfigMap %s in namespace %s: %v", cmName, cmNamespace, err)
 				return err
@@ -101,6 +107,22 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 		}
 		return err
 	}
+
+	ownerRefUIDs := util.GetOwnerReferenceUIDs(cm.GetOwnerReferences())
+	if len(ownerRefUIDs) != 0 {
+		// ConfigMap OwnerReference UIDs don't contain current NamespaceScope instance UID, means this
+		// ConfigMap belong to another NamespaceScope instance, stop reconcile.
+		if !util.UIDContains(ownerRefUIDs, instance.UID) {
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "ConfigMap Name Conflict", "ConfigMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
+			klog.Errorf("configMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
+			return fmt.Errorf("configMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
+		}
+	} else {
+		r.Recorder.Eventf(instance, corev1.EventTypeWarning, "No OwnerReference", "ConfigMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
+		klog.Errorf("configMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
+		return fmt.Errorf("configMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
+	}
+
 	return nil
 }
 
@@ -343,6 +365,7 @@ func setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope
 
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Owns(&corev1.ConfigMap{}).
 		For(&operatorv1.NamespaceScope{}).
 		Complete(r)
 }

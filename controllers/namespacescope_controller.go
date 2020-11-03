@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,7 +42,8 @@ var ctx context.Context
 // NamespaceScopeReconciler reconciles a NamespaceScope object
 type NamespaceScopeReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Recorder record.EventRecorder
+	Scheme   *runtime.Scheme
 }
 
 func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
@@ -137,9 +139,15 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	}
 	for _, toNs := range instance.Spec.NamespaceMembers {
 		if err := r.CreateRole(fromNs, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+			}
 			return err
 		}
 		if err := r.CreateUpdateRoleBinding(saNames, fromNs, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+			}
 			return err
 		}
 	}

@@ -18,6 +18,8 @@ package common
 
 import (
 	gset "github.com/deckarep/golang-set"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func MakeSet(strs []string) gset.Set {
@@ -46,7 +48,24 @@ func GetListDifference(slice1 []string, slice2 []string) []string {
 	return diff
 }
 
+func GetOwnerReferenceUIDs(ownerRefs []metav1.OwnerReference) []types.UID {
+	var ownerRefUIDs []types.UID
+	for _, ref := range ownerRefs {
+		ownerRefUIDs = append(ownerRefUIDs, ref.UID)
+	}
+	return ownerRefUIDs
+}
+
 func Contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func UIDContains(list []types.UID, s types.UID) bool {
 	for _, v := range list {
 		if v == s {
 			return true

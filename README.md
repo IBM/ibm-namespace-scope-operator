@@ -10,7 +10,7 @@ A sample CR is below:
 apiVersion: operator.ibm.com/v1
 kind: NamespaceScope
 metadata:
-  name: namespacescope
+  name: common-service
 spec:
   # Namespaces that are part of this scope
   namespaceMembers:
@@ -110,7 +110,7 @@ When the `NamespaceScope` CR is created/updated, it will:
     apiVersion: rbac.authorization.k8s.io/v1
     kind: Role
     metadata:
-      name: ibm-namespace-scope-operator-managed-role
+      name: namespacescope-managed-role-from-NS
       namespace: FROM_namespaceMembers
     rules:
     - apiGroups:
@@ -123,7 +123,7 @@ When the `NamespaceScope` CR is created/updated, it will:
     kind: RoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
-      name: ibm-namespace-scope-operator-managed-rolebinding
+      name: namespacescope-managed-role-from-NS
       namespace: FROM_namespaceMembers
     subjects:
     - kind: ServiceAccount
@@ -131,12 +131,14 @@ When the `NamespaceScope` CR is created/updated, it will:
       namespace: ibm-common-services
     roleRef:
       kind: Role
-      name: ibm-namespace-scope-operator-managed-role
+      name: namespacescope-managed-role-from-NS
       apiGroup: rbac.authorization.k8s.io
     ```
 
 
-## How to deploy it
+## How to manually deploy it
+
+NOTE: This operator is part of the IBM Common Services and will be automatically installed. Following commands are only applicable when you want to deploy it without IBM Common Services.
 
 ```
 git clone https://github.com/IBM/ibm-namespace-scope-operator.git

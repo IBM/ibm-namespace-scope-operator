@@ -1,7 +1,7 @@
 apiVersion: operator.ibm.com/v1
 kind: NamespaceScope
 metadata:
-  name: namespacescope
+  name: common-service
   namespace: ibm-common-services
 spec:
   # Namespaces that are part of this scope

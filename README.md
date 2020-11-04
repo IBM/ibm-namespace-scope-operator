@@ -154,3 +154,32 @@ oc -n ibm-common-services apply -f deploy/operator.yaml
 
 oc -n ibm-common-services apply -f deploy/cr.yaml
 ```
+
+## Authorization and Permissions
+
+The **authorize-namespace.sh** script in the `scripts/` directory is used to set up roles and binding in a target namespace.
+
+The syntax for the command is below:
+
+```
+authorize-namespace.sh - Authorize a namespace to be manageable from another namespace through the NamespaceScope operator
+
+SYNTAX:
+authorize-namespace.sh [namespace | default current namespace] [-to namespacename | default ibm-common-services] [-delete]
+WHERE:
+  namespace : is the name of the namespace you wish to authorize.  This namespace MUST exist
+              by default the current namespace is assumed
+  tonamespace : is the name of the namespace that you want to authorize to manage artifacts in this namespace.
+                This namespace MUST exist.  The default is ibm-common-services.
+                The NamespaceScope CR MUST be define in this namespace with the name namespacescope.
+  -delete : Removes the ability for the tonamespace to manage artifacts in the namespace.
+
+```
+
+For example, if you want to grant namespace admin permission of `common-service` to the service account in `ibm-common-services` namespace, you can use the following command
+
+```bash
+scripts/authorize-namespace.sh common-service
+```
+
+**NOTE:** You must have cluster administrator access permissions to execute the command.

@@ -127,6 +127,7 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 		if errors.IsNotFound(err) {
 			cm.Name = cmName
 			cm.Namespace = cmNamespace
+			cm.Labels = map[string]string{constant.NamespaceScopeLabel: "true"}
 			cm.Data = make(map[string]string)
 			cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
 			// Set NamespaceScope instance as the owner of the ConfigMap.

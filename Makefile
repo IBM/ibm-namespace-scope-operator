@@ -71,6 +71,8 @@ OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 OPERATOR_VERSION ?= 1.0.0
 
 # Options for 'bundle-build'
+CHANNELS ?= beta
+DEFAULT_CHANNEL ?= beta
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif
@@ -130,6 +132,14 @@ manifests: ## Generate manifests e.g. CRD, RBAC etc.
 
 generate: ## Generate code e.g. API etc.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+generate-csv-manifests: ## Generate CSV manifests
+	$(OPERATOR_SDK) generate kustomize manifests
+
+bundle: generate manifests ## Generate bundle manifests
+	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	-q --overwrite --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
+	$(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test
 

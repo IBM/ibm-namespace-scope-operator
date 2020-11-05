@@ -13,9 +13,9 @@ spec:
     kind: NamespaceScope
     listKind: NamespaceScopeList
     plural: namespacescopes
-    singular: namespacescope
     shortNames:
     - nss
+    singular: namespacescope
   scope: Namespaced
   subresources:
     status: {}

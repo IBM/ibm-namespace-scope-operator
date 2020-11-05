@@ -51,6 +51,7 @@ type NamespaceScopeStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=namespacescopes,shortName=nss,scope=Namespaced
 
 // NamespaceScope is the Schema for the namespacescopes API
 type NamespaceScope struct {

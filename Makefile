@@ -141,6 +141,11 @@ bundle: generate manifests ## Generate bundle manifests
 	-q --overwrite --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
+	# $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	# -q --overwrite --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
+	# --output-dir bundle-restricted
+	# $(OPERATOR_SDK) bundle validate ./bundle-restricted
+
 ##@ Test
 
 test: ## Run unit test on prow
@@ -163,6 +168,7 @@ build-operator-image: ## Build the operator image.
 	@docker build -t $(OPERATOR_IMAGE_NAME)-$(LOCAL_ARCH):$(VERSION) \
 	--build-arg VCS_REF=$(VCS_REF) --build-arg VCS_URL=$(VCS_URL) \
 	--build-arg GOARCH=$(LOCAL_ARCH) -f Dockerfile .
+
 ##@ Release
 
 build-push-image: $(CONFIG_DOCKER_TARGET) $(CONFIG_DOCKER_TARGET_QUAY) build-operator-image  ## Build and push the operator images.

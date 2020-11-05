@@ -20,12 +20,17 @@ import (
 	"flag"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	cache "github.com/IBM/controller-filtered-cache/filteredcache"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
 	"github.com/IBM/ibm-namespace-scope-operator/controllers"
@@ -54,6 +59,12 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.Parse()
 
+	gvkLabelMap := map[schema.GroupVersionKind]cache.Selector{
+		corev1.SchemeGroupVersion.WithKind("ConfigMap"):   {LabelSelector: "managedby-namespace-scope"},
+		rbacv1.SchemeGroupVersion.WithKind("Role"):        {LabelSelector: "projectedfrom"},
+		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"): {LabelSelector: "projectedfrom"},
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
@@ -61,6 +72,7 @@ func main() {
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "6a4a72f9.ibm.com",
+		NewCache:           cache.NewFilteredCacheBuilder(gvkLabelMap),
 	})
 	if err != nil {
 		klog.Error(err, "unable to start manager")

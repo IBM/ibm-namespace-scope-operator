@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -63,6 +62,10 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	if !instance.GetDeletionTimestamp().IsZero() {
 		if util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
 			if err := r.DeleteAllRbac(instance); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if err := r.UpdateConfigMap(instance); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -129,9 +132,13 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 			cm.Namespace = cmNamespace
 			cm.Labels = map[string]string{constant.NamespaceScopeLabel: "true"}
 			cm.Data = make(map[string]string)
-			cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
+			nsMembers, err := r.getNamespaceList(instance)
+			if err != nil {
+				return err
+			}
+			cm.Data["namespaces"] = strings.Join(nsMembers, ",")
 			// Set NamespaceScope instance as the owner of the ConfigMap.
-			if err := controllerutil.SetControllerReference(instance, cm, r.Scheme); err != nil {
+			if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
 				klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cmNamespace, cmName, err)
 				return err
 			}
@@ -143,21 +150,6 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 			return nil
 		}
 		return err
-	}
-
-	ownerRefUIDs := util.GetOwnerReferenceUIDs(cm.GetOwnerReferences())
-	if len(ownerRefUIDs) != 0 {
-		// ConfigMap OwnerReference UIDs don't contain current NamespaceScope instance UID, means this
-		// ConfigMap belong to another NamespaceScope instance, stop reconcile.
-		if !util.UIDContains(ownerRefUIDs, instance.UID) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "ConfigMap Name Conflict", "ConfigMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
-			klog.Errorf("configMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
-			return fmt.Errorf("configMap %s/%s has belong to another NamesapceScope instance, you need to change to a new configmapName", cmNamespace, cmName)
-		}
-	} else {
-		r.Recorder.Eventf(instance, corev1.EventTypeWarning, "No OwnerReference", "ConfigMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
-		klog.Errorf("configMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
-		return fmt.Errorf("configMap %s/%s has no owner reference, you need to change to a new configmapName", cmNamespace, cmName)
 	}
 
 	return nil
@@ -175,16 +167,35 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	}
 
 	// If NamespaceMembers changed, update ConfigMap
-	if strings.Join(instance.Spec.NamespaceMembers, ",") != cm.Data["namespaces"] {
-		cm.Data["namespaces"] = strings.Join(instance.Spec.NamespaceMembers, ",")
+	nsMembers, err := r.getNamespaceList(instance)
+	if err != nil {
+		return err
+	}
+
+	// Get owner uids
+	ownerRefUIDs := util.GetOwnerReferenceUIDs(cm.GetOwnerReferences())
+
+	if util.CheckListDifference(nsMembers, strings.Split(cm.Data["namespaces"], ",")) || !util.UIDContains(ownerRefUIDs, instance.UID) {
+		restartpod := util.CheckListDifference(nsMembers, strings.Split(cm.Data["namespaces"], ","))
+		if restartpod {
+			cm.Data["namespaces"] = strings.Join(nsMembers, ",")
+		}
+
+		if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
+			klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cm.Namespace, cm.Name, err)
+			return err
+		}
+
 		if err := r.Update(ctx, cm); err != nil {
 			klog.Errorf("Failed to update ConfigMap %s : %v", cmKey.String(), err)
 			return err
 		}
 
 		// When the configmap updated, restart all the pods with the RestartLabels
-		if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
-			return err
+		if restartpod {
+			if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -197,7 +208,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		return err
 	}
 	labels := map[string]string{
-		"projectedfrom": instance.Namespace + "-" + instance.Name,
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 
 	for _, toNs := range instance.Spec.NamespaceMembers {
@@ -229,10 +240,13 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	if cm.Data["namespaces"] != "" {
 		nsInCm = strings.Split(cm.Data["namespaces"], ",")
 	}
-	nsInCr := instance.Spec.NamespaceMembers
+	nsInCr, err := r.getNamespaceList(instance)
+	if err != nil {
+		return err
+	}
 	unmanagedNss := util.GetListDifference(nsInCm, nsInCr)
 	labels := map[string]string{
-		"projectedfrom": instance.Namespace + "-" + instance.Name,
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 	for _, toNs := range unmanagedNss {
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
@@ -255,8 +269,9 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 
 // When delete NamespaceScope instance, cleanup all RBAC resources
 func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceScope) error {
+	instance = setDefaults(instance)
 	labels := map[string]string{
-		"projectedfrom": instance.Namespace + "-" + instance.Name,
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 	for _, toNs := range instance.Spec.NamespaceMembers {
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
@@ -303,7 +318,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(labels map[string]string, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleName + labels["projectedfrom"]
+	name := constant.NamespaceScopeManagedRoleName + labels["namespace-scope-configmap"]
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -344,7 +359,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 }
 
 func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]string, saNames []string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleBindingName + labels["projectedfrom"]
+	name := constant.NamespaceScopeManagedRoleBindingName + labels["namespace-scope-configmap"]
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -364,7 +379,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]str
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedRoleName + labels["projectedfrom"],
+			Name:     constant.NamespaceScopeManagedRoleName + labels["namespace-scope-configmap"],
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
@@ -431,8 +446,35 @@ func setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope
 	if instance.Spec.ConfigmapName == "" {
 		instance.Spec.ConfigmapName = constant.NamespaceScopeConfigmapName
 	}
+	if len(instance.Spec.RestartLabels) == 0 {
+		instance.Spec.RestartLabels = map[string]string{
+			constant.DefaultRestartLabelsKey: constant.DefaultRestartLabelsValue,
+		}
+	}
 
 	return instance
+}
+
+func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.NamespaceScope) ([]string, error) {
+	// List the instance using the same configmap
+	crList := &operatorv1.NamespaceScopeList{}
+	namespaceMembersList := util.MakeSet([]string{})
+	if err := r.List(ctx, crList, &client.ListOptions{Namespace: instance.Namespace}); err != nil {
+		klog.Errorf("Cannot list namespacescope with in namespace %s: %v", instance.Namespace, err)
+		return nil, err
+	}
+	for _, cr := range crList.Items {
+		cr := setDefaults(&cr)
+		if !cr.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if instance.Spec.ConfigmapName == cr.Spec.ConfigmapName {
+			for _, ns := range cr.Spec.NamespaceMembers {
+				namespaceMembersList.Add(ns)
+			}
+		}
+	}
+	return util.ToStringSlice(namespaceMembersList), nil
 }
 
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {

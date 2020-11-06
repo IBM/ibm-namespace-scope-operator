@@ -17,6 +17,8 @@
 package common
 
 import (
+	"sort"
+
 	gset "github.com/deckarep/golang-set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,6 +48,20 @@ func GetListDifference(slice1 []string, slice2 []string) []string {
 		diff = append(diff, s.(string))
 	}
 	return diff
+}
+
+func CheckListDifference(slice1 []string, slice2 []string) bool {
+	if len(slice1) != len(slice2) {
+		return true
+	}
+	sort.Strings(slice1)
+	sort.Strings(slice2)
+	for i, v := range slice1 {
+		if v != slice2[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func GetOwnerReferenceUIDs(ownerRefs []metav1.OwnerReference) []types.UID {

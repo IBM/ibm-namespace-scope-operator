@@ -61,8 +61,8 @@ func main() {
 
 	gvkLabelMap := map[schema.GroupVersionKind]cache.Selector{
 		corev1.SchemeGroupVersion.WithKind("ConfigMap"):   {LabelSelector: "managedby-namespace-scope"},
-		rbacv1.SchemeGroupVersion.WithKind("Role"):        {LabelSelector: "projectedfrom"},
-		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"): {LabelSelector: "projectedfrom"},
+		rbacv1.SchemeGroupVersion.WithKind("Role"):        {LabelSelector: "namespace-scope-configmap"},
+		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"): {LabelSelector: "namespace-scope-configmap"},
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{

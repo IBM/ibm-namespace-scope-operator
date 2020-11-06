@@ -22,4 +22,6 @@ const (
 	NamespaceScopeConfigmapName          = "namespace-scope"
 	NamespaceScopeFinalizer              = "finalizer.nss.operator.ibm.com"
 	NamespaceScopeLabel                  = "managedby-namespace-scope"
+	DefaultRestartLabelsKey              = "intent"
+	DefaultRestartLabelsValue            = "projected"
 )

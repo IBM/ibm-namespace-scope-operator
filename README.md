@@ -72,7 +72,38 @@ Namespace Scope Operator runs in `ibm-common-services` namespace with namespace 
 
 When the `NamespaceScope` CR is created/updated, it will:
 
-* Generate a ConfigMap with key `namespaces` and value is the comma separated `namespaceMembers`
+1. Create role/rolebinding with service accounts from the pods who have label selector `restartLabels`
+
+    ```
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: namespacescope-managed-role-from-NS-CR
+      namespace: FROM_namespaceMembers
+    rules:
+    - apiGroups:
+      - '*'
+      resources:
+      - '*'
+      verbs:
+      - '*'
+    ---
+    kind: RoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: namespacescope-managed-role-from-NS-CR
+      namespace: FROM_namespaceMembers
+    subjects:
+    - kind: ServiceAccount
+      name: GET_FROM_PODS_WHO_HAVE_restartLabels
+      namespace: ibm-common-services
+    roleRef:
+      kind: Role
+      name: namespacescope-managed-role-from-NS-CR
+      apiGroup: rbac.authorization.k8s.io
+    ```
+
+2. Generate a ConfigMap with key `namespaces` and value is the comma separated `namespaceMembers`
 
     ```
     apiVersion: v1
@@ -83,7 +114,8 @@ When the `NamespaceScope` CR is created/updated, it will:
     data:
       namespaces: default,cp4i
     ```
-* Restart the pods with label selector `restartLabels`
+
+3. Restart the pods with label selector `restartLabels`
 
     ```
     apiVersion: apps/v1
@@ -102,37 +134,6 @@ When the `NamespaceScope` CR is created/updated, it will:
             intent: projected
         spec:
         ...
-    ```
-
-* Create role/rolebinding with service accounts from the pods who have label selector `restartLabels`
-
-    ```
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: Role
-    metadata:
-      name: namespacescope-managed-role-from-NS
-      namespace: FROM_namespaceMembers
-    rules:
-    - apiGroups:
-      - '*'
-      resources:
-      - '*'
-      verbs:
-      - '*'
-    ---
-    kind: RoleBinding
-    apiVersion: rbac.authorization.k8s.io/v1
-    metadata:
-      name: namespacescope-managed-role-from-NS
-      namespace: FROM_namespaceMembers
-    subjects:
-    - kind: ServiceAccount
-      name: GET_FROM_PODS_WHO_HAVE_restartLabels
-      namespace: ibm-common-services
-    roleRef:
-      kind: Role
-      name: namespacescope-managed-role-from-NS
-      apiGroup: rbac.authorization.k8s.io
     ```
 
 

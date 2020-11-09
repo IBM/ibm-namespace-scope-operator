@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -87,7 +88,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		}
 	}
 
-	instance = setDefaults(instance)
+	instance = r.setDefaults(instance)
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
 	if err := r.InitConfigMap(instance); err != nil {
@@ -147,6 +148,9 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 				return err
 			}
 			klog.Infof("Created ConfigMap %s in namespace %s", cmName, cmNamespace)
+			if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+				return err
+			}
 			return nil
 		}
 		return err
@@ -290,7 +294,7 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 
 // When delete NamespaceScope instance, cleanup all RBAC resources
 func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceScope) error {
-	instance = setDefaults(instance)
+	instance = r.setDefaults(instance)
 	labels := map[string]string{
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
@@ -349,7 +353,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(labels map[string]string, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleName + labels["namespace-scope-configmap"]
+	name := constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"]
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -390,7 +394,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 }
 
 func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]string, saNames []string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedRoleBindingName + labels["namespace-scope-configmap"]
+	name := constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"]
 	namespace := toNs
 	subjects := []rbacv1.Subject{}
 	for _, saName := range saNames {
@@ -410,7 +414,7 @@ func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]str
 		Subjects: subjects,
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedRoleName + labels["namespace-scope-configmap"],
+			Name:     constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"],
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
@@ -473,13 +477,20 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespa
 	return nil
 }
 
-func setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope {
+func (r *NamespaceScopeReconciler) setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope {
 	if instance.Spec.ConfigmapName == "" {
 		instance.Spec.ConfigmapName = constant.NamespaceScopeConfigmapName
 	}
 	if len(instance.Spec.RestartLabels) == 0 {
 		instance.Spec.RestartLabels = map[string]string{
 			constant.DefaultRestartLabelsKey: constant.DefaultRestartLabelsValue,
+		}
+	}
+	if r.checkGetNSAuth() {
+		if validatedNs, err := r.getValidatedNamespaces(instance); err != nil {
+			klog.Errorf("Failed to validate namespace: %v", err)
+		} else {
+			instance.Spec.NamespaceMembers = validatedNs
 		}
 	}
 
@@ -495,7 +506,7 @@ func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.Namespa
 		return nil, err
 	}
 	for i := range crList.Items {
-		cr := setDefaults(&crList.Items[i])
+		cr := r.setDefaults(&crList.Items[i])
 		if !cr.GetDeletionTimestamp().IsZero() {
 			continue
 		}
@@ -506,6 +517,43 @@ func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.Namespa
 		}
 	}
 	return util.ToStringSlice(namespaceMembersList), nil
+}
+
+func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
+	// List the instance using the same configmap
+	sar := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Verb:     "get",
+				Group:    "",
+				Resource: "namespaces",
+			},
+		},
+	}
+
+	if err := r.Create(ctx, sar); err != nil {
+		klog.Errorf("Failed to check if operator has permission to get namespace: %v", err)
+		return false
+	}
+	return sar.Status.Allowed
+}
+
+func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {
+	var validatedNs []string
+	for _, nsMem := range instance.Spec.NamespaceMembers {
+		ns := &corev1.Namespace{}
+		key := types.NamespacedName{Name: nsMem}
+		if err := r.Get(ctx, key, ns); err != nil {
+			if errors.IsNotFound(err) {
+				klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
+				continue
+			} else {
+				return nil, err
+			}
+		}
+		validatedNs = append(validatedNs, nsMem)
+	}
+	return validatedNs, nil
 }
 
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -211,7 +211,17 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("get operator namespace failed: ", err)
+		return err
+	}
+
 	for _, toNs := range instance.Spec.NamespaceMembers {
+		if toNs == operatorNs {
+			continue
+		}
+
 		if err := r.CreateRole(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
@@ -248,7 +258,18 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	labels := map[string]string{
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
+
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("get operator namespace failed: ", err)
+		return err
+	}
+
 	for _, toNs := range unmanagedNss {
+		if toNs == operatorNs {
+			continue
+		}
+
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
@@ -273,7 +294,17 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 	labels := map[string]string{
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
+
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("get operator namespace failed: ", err)
+		return err
+	}
+
 	for _, toNs := range instance.Spec.NamespaceMembers {
+		if toNs == operatorNs {
+			continue
+		}
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
@@ -463,8 +494,8 @@ func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.Namespa
 		klog.Errorf("Cannot list namespacescope with in namespace %s: %v", instance.Namespace, err)
 		return nil, err
 	}
-	for _, cr := range crList.Items {
-		cr := setDefaults(&cr)
+	for i := range crList.Items {
+		cr := setDefaults(&crList.Items[i])
 		if !cr.GetDeletionTimestamp().IsZero() {
 			continue
 		}

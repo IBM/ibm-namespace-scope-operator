@@ -17,11 +17,16 @@
 package common
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
 	"sort"
+	"strings"
 
 	gset "github.com/deckarep/golang-set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog"
 )
 
 func MakeSet(strs []string) gset.Set {
@@ -96,4 +101,24 @@ func Reverse(original []string) []string {
 		reversed = append(reversed, original[i])
 	}
 	return reversed
+}
+
+// GetOperatorNamespace returns the namespace the operator should be running in.
+func GetOperatorNamespace() (string, error) {
+	ns, found := os.LookupEnv("OPERATOR_NAMESPACE")
+	if !found {
+		nsBytes, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("namespace not found for current environment")
+			}
+			return "", err
+		}
+		ns = strings.TrimSpace(string(nsBytes))
+	}
+	if len(ns) == 0 {
+		return "", fmt.Errorf("operator namespace is empty")
+	}
+	klog.V(1).Info("Found namespace", "Namespace", ns)
+	return ns, nil
 }

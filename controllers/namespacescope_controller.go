@@ -304,14 +304,14 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 		return nil, err
 	}
 
-	var saNames []string
+	// By default, set ibm-namespace-scope-operator service account
+	var saNames = []string{"ibm-namespace-scope-operator"}
 
 	for _, pod := range pods.Items {
 		if len(pod.Spec.ServiceAccountName) != 0 {
 			saNames = append(saNames, pod.Spec.ServiceAccountName)
 		}
 	}
-
 	saNames = util.ToStringSlice(util.MakeSet(saNames))
 
 	return saNames, nil

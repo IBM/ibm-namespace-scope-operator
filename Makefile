@@ -136,15 +136,27 @@ generate: ## Generate code e.g. API etc.
 generate-csv-manifests: ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: generate manifests ## Generate bundle manifests
-	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
-	-q --overwrite --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
-	$(OPERATOR_SDK) bundle validate ./bundle
+bundle: generate manifests ## Generate bundle and restricted bundle manifests
+	# Generate restricted bundle manifests
+	@yq w -i PROJECT 'projectName' ibm-namespace-scope-operator-restricted
+	@yq w -i config/rbac/role.yaml 'kind' Role
+	@yq w -i config/rbac/role_binding.yaml 'kind' RoleBinding
+	@yq w -i config/rbac/role_binding.yaml 'roleRef.kind' Role
+	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
+	--output-dir bundle-restricted
+	@rm -f ./bundle-restricted/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml
+	- $(OPERATOR_SDK) bundle validate ./bundle-restricted
+	@yq w -i PROJECT 'projectName' ibm-namespace-scope-operator
+	@yq w -i config/rbac/role.yaml 'kind' ClusterRole
+	@yq w -i config/rbac/role_binding.yaml 'kind' ClusterRoleBinding
+	@yq w -i config/rbac/role_binding.yaml 'roleRef.kind' ClusterRole
 
-	# $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
-	# -q --overwrite --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
-	# --output-dir bundle-restricted
-	# $(OPERATOR_SDK) bundle validate ./bundle-restricted
+	# Generate bundle manifests
+	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
+	@rm -f ./bundle/manifests/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
+	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test
 

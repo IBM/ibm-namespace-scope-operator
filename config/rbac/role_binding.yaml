@@ -1,4 +1,3 @@
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -8,5 +7,5 @@ roleRef:
   kind: ClusterRole
   name: ibm-namespace-scope-operator
 subjects:
-- kind: ServiceAccount
-  name: ibm-namespace-scope-operator
+  - kind: ServiceAccount
+    name: ibm-namespace-scope-operator

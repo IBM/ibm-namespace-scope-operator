@@ -305,7 +305,13 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		return err
 	}
 
-	for _, toNs := range instance.Spec.NamespaceMembers {
+	usingMembers, err := r.getNamespaceList(instance)
+	if err != nil {
+		return err
+	}
+	deletedMembers := util.GetListDifference(instance.Spec.NamespaceMembers, usingMembers)
+
+	for _, toNs := range deletedMembers {
 		if toNs == operatorNs {
 			continue
 		}

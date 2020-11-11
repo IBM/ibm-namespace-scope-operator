@@ -60,12 +60,6 @@ spec:
               description: Restart pods with the following labels when the namspace
                 list changes
               type: object
-            serviceAccountMembers:
-              description: ServiceAccountMembers are extra service accounts will be
-                bond the roles from other namespaces
-              items:
-                type: string
-              type: array
           type: object
         status:
           description: NamespaceScopeStatus defines the observed state of NamespaceScope

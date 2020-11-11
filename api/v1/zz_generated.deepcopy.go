@@ -91,6 +91,11 @@ func (in *NamespaceScopeSpec) DeepCopyInto(out *NamespaceScopeSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ServiceAccountMembers != nil {
+		in, out := &in.ServiceAccountMembers, &out.ServiceAccountMembers
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.RestartLabels != nil {
 		in, out := &in.RestartLabels, &out.RestartLabels
 		*out = make(map[string]string, len(*in))

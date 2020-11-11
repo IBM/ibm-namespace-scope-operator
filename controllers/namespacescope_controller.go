@@ -207,7 +207,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
 	fromNs := instance.Namespace
-	saNames, err := r.GetServiceAccountFromNamespace(instance.Spec.RestartLabels, fromNs)
+	saNames, err := r.GetServiceAccountFromNamespace(instance, fromNs)
 	if err != nil {
 		return err
 	}
@@ -394,9 +394,9 @@ func (r *NamespaceScopeReconciler) createRoleBindingForNSS(labels map[string]str
 		},
 	}
 
-	if err := r.Create(ctx, roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+	if err := r.Create(ctx, roleBinding); err != nil {
 		if errors.IsAlreadyExists(err) {
-			return err
+			return nil
 		}
 		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
 		return err
@@ -431,7 +431,8 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[string]string, namespace string) ([]string, error) {
+func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {
+	labels := instance.Spec.RestartLabels
 	pods := &corev1.PodList{}
 	opts := []client.ListOption{
 		client.MatchingLabels(labels),
@@ -451,6 +452,18 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[str
 			saNames = append(saNames, pod.Spec.ServiceAccountName)
 		}
 	}
+
+	if len(instance.Spec.ServiceAccountMembers) != 0 {
+		for _, sa := range instance.Spec.ServiceAccountMembers {
+			serviceaccount := &corev1.ServiceAccount{}
+			if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: sa}, serviceaccount); err != nil {
+				klog.Errorf("Failed to get service account %s in namespace %s", sa, namespace)
+				continue
+			}
+			saNames = append(saNames, sa)
+		}
+	}
+
 	saNames = util.ToStringSlice(util.MakeSet(saNames))
 
 	return saNames, nil
@@ -502,6 +515,7 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 					klog.Errorf("Failed to update role %s/%s: %v", namespace, name, err)
 					return err
 				}
+				return nil
 			}
 			klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
 			return err
@@ -549,9 +563,9 @@ func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels 
 			},
 		}
 
-		if err := r.Create(ctx, roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+		if err := r.Create(ctx, roleBinding); err != nil {
 			if errors.IsAlreadyExists(err) {
-				return err
+				return nil
 			}
 			klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
 			return err

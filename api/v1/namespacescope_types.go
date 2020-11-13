@@ -31,6 +31,9 @@ type NamespaceScopeSpec struct {
 	// Namespaces that are part of this scope
 	NamespaceMembers []string `json:"namespaceMembers,omitempty"`
 
+	// ServiceAccountMembers are extra service accounts will be bond the roles from other namespaces
+	ServiceAccountMembers []string `json:"serviceAccountMembers,omitempty"`
+
 	// ConfigMap name that will contain the list of namespaces to be watched
 	ConfigmapName string `json:"configmapName,omitempty"`
 

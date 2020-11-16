@@ -183,4 +183,10 @@ For example, if you want to grant namespace admin permission of `common-service`
 scripts/authorize-namespace.sh common-service
 ```
 
+if you want to revoke this namespace admin permission, you can use the following command
+
+```bash
+scripts/authorize-namespace.sh common-service -delete
+```
+
 **NOTE:** You must have cluster administrator access permissions to execute the command.

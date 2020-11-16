@@ -20,16 +20,15 @@
 #
 
 function help() {
-    echo "authorize-namespace.sh - Authorize a namespace to be managable from another namespare through the NamespaceScope operator"
+    echo "authorize-namespace.sh - Authorize a namespace to be manageable from another namespace through the NamespaceScope operator"
     echo "SYNTAX:"
-    echo "authorize-namespace.sh [namespace | default current namespace] [-to namespacename | default ibm-common-services] [-delete]"
+    echo "authorize-namespace.sh [namespace | default current namespace] [-to namespace | default ibm-common-services] [-delete]"
     echo "WHERE:"
-    echo "  namespace : is the name of the namspece you wish to authorize.  This namespace MUST exist, "
-    echo "              by default the current namespace is assumed"
-    echo "  tonamespace : is the name of the namespace that you want to authorize to manage artifacts in this namespace."
-    echo "                This namespace MUST exist.  The default is ibm-common-services".
-    echo "                The NamepaceScope CR MUST be define in this namespace with the name namespacescope."
-    echo "  -delete : Removes the ability for the tonamespace to manage artifacts in the namespace."    
+    echo "  namespace: It is the name of the namespace you wish to authorize.  This namespace MUST exist. "
+    echo "             By default, the current namespace is assumed"
+    echo "  -to namespace: It is the name of the namespace of the NamespaceScope operator that you want to authorize."
+    echo "                 This namespace MUST exist.  The default is ibm-common-services."
+    echo "  -delete: It removes the ability for the NamespaceScope operator in tonamespace to manage artifacts in the namespace."    
     echo ""
     echo "You must be logged into the Openshift cluster from the oc command line"
     echo ""
@@ -107,23 +106,23 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ "$TARGETNS" == "$TONS" ]; then
-  echo "Namespace and tonamespace canot be the same namespace."
+  echo "Namespace and to namespace cannot be the same namespace."
   help
   exit 1
 fi
 
 if [ $DELETE -eq 1 ]; then
-  echo "Deleteing authorization of namespace $TARGETNS to $TONS" >&2
+  echo "Deleting authorization that the NamespaceScope operator in $TONS to manages namespace $TARGETNS" >&2
 else
-  echo "Authorizing namespace $TARGETNS to $TONS" >&2
+  echo "Authorizing the NamespaceScope operator in $TONS to manage namespace $TARGETNS " >&2
 fi
 
 #
 # Delete permissions and update the list if needed
 #
 if [ $DELETE -ne 0 ]; then
-  oc delete role -l projectedfrom=$TONS -n $TARGETNS
-  oc delete rolebinding -l projectedfrom=$TONS -n $TARGETNS
+  oc delete role nss-managed-role-from-$TONS -n $TARGETNS --ignore-not-found
+  oc delete rolebinding nss-managed-role-from-$TONS -n $TARGETNS --ignore-not-found
   exit 0
 fi
 
@@ -135,9 +134,7 @@ cat <<EOF | oc apply -n $TARGETNS -f -
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: namespace-scope-client
-  labels:
-    projectedfrom: $TONS
+  name: nss-managed-role-from-$TONS
 rules:
 - apiGroups:
   - "*"
@@ -154,15 +151,13 @@ cat <<EOF | oc apply -n $TARGETNS -f -
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: namespace-scope-binding
-  labels:
-    projectedfrom: $TONS
+  name: nss-managed-role-from-$TONS
 subjects:
 - kind: ServiceAccount
   name: ibm-namespace-scope-operator
   namespace: $TONS
 roleRef:
   kind: Role
-  name: namespace-scope-client
+  name: nss-managed-role-from-$TONS
   apiGroup: rbac.authorization.k8s.io
 EOF

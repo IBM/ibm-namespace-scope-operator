@@ -17,10 +17,11 @@
 package constant
 
 const (
-	NamespaceScopeManagedPrefix = "nss-managed-role-from-"
-	NamespaceScopeConfigmapName = "namespace-scope"
-	NamespaceScopeFinalizer     = "finalizer.nss.operator.ibm.com"
-	NamespaceScopeLabel         = "managedby-namespace-scope"
-	DefaultRestartLabelsKey     = "intent"
-	DefaultRestartLabelsValue   = "projected"
+	NamespaceScopeManagedPrefix  = "nss-managed-role-from-"
+	NamespaceScopeConfigmapName  = "namespace-scope"
+	NamespaceScopeFinalizer      = "finalizer.nss.operator.ibm.com"
+	NamespaceScopeLabel          = "managedby-namespace-scope"
+	DefaultRestartLabelsKey      = "intent"
+	DefaultRestartLabelsValue    = "projected"
+	NamespaceScopeServiceAccount = "ibm-namespace-scope-operator"
 )

@@ -164,7 +164,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
-			klog.Infof("Not found ConfigMap %s", cmKey.String())
+			klog.Infof("ConfigMap %s not found ", cmKey.String())
 			return nil
 		}
 		return err
@@ -207,12 +207,9 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
 	fromNs := instance.Namespace
-	saNames, err := r.GetServiceAccountFromNamespace(instance.Spec.RestartLabels, fromNs)
+	saNames, err := r.GetServiceAccountFromNamespace(instance, fromNs)
 	if err != nil {
 		return err
-	}
-	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -225,17 +222,10 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		if toNs == operatorNs {
 			continue
 		}
-
-		if err := r.CreateRole(labels, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
-			}
+		if err := r.generateRBACForNSS(instance, fromNs, toNs); err != nil {
 			return err
 		}
-		if err := r.CreateUpdateRoleBinding(labels, saNames, fromNs, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
-			}
+		if err := r.generateRBACToNamespace(instance, saNames, fromNs, toNs); err != nil {
 			return err
 		}
 	}
@@ -246,7 +236,7 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
-		klog.Errorf("Not found ConfigMap %s", cmKey.String())
+		klog.Errorf("ConfigMap %s not found", cmKey.String())
 		return err
 	}
 
@@ -276,14 +266,14 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
 		}
 		if err := r.DeleteRole(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
@@ -317,14 +307,14 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		}
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
 		}
 		if err := r.DeleteRole(labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s", toNs)
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
@@ -333,33 +323,27 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(labels map[string]string, namespace string) ([]string, error) {
-	pods := &corev1.PodList{}
-	opts := []client.ListOption{
-		client.MatchingLabels(labels),
-		client.InNamespace(namespace),
+func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.NamespaceScope, fromNs, toNs string) error {
+	labels := map[string]string{
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
-
-	if err := r.List(ctx, pods, opts...); err != nil {
-		klog.Errorf("Cannot list pods with labels %v in namespace %s: %v", labels, namespace, err)
-		return nil, err
-	}
-
-	// By default, set ibm-namespace-scope-operator service account
-	var saNames = []string{"ibm-namespace-scope-operator"}
-
-	for _, pod := range pods.Items {
-		if len(pod.Spec.ServiceAccountName) != 0 {
-			saNames = append(saNames, pod.Spec.ServiceAccountName)
+	if err := r.createRoleForNSS(labels, fromNs, toNs); err != nil {
+		if errors.IsForbidden(err) {
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 		}
+		return err
 	}
-	saNames = util.ToStringSlice(util.MakeSet(saNames))
-
-	return saNames, nil
+	if err := r.createRoleBindingForNSS(labels, fromNs, toNs); err != nil {
+		if errors.IsForbidden(err) {
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+		}
+		return err
+	}
+	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRole(labels map[string]string, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"]
+func (r *NamespaceScopeReconciler) createRoleForNSS(labels map[string]string, fromNs, toNs string) error {
+	name := constant.NamespaceScopeManagedPrefix + fromNs
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -386,6 +370,164 @@ func (r *NamespaceScopeReconciler) CreateRole(labels map[string]string, toNs str
 	return nil
 }
 
+func (r *NamespaceScopeReconciler) createRoleBindingForNSS(labels map[string]string, fromNs, toNs string) error {
+	name := constant.NamespaceScopeManagedPrefix + fromNs
+	namespace := toNs
+	subjects := []rbacv1.Subject{}
+	subject := rbacv1.Subject{
+		Kind:      "ServiceAccount",
+		Name:      constant.NamespaceScopeServiceAccount,
+		Namespace: fromNs,
+	}
+	subjects = append(subjects, subject)
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Subjects: subjects,
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "Role",
+			Name:     constant.NamespaceScopeManagedPrefix + fromNs,
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+
+	if err := r.Create(ctx, roleBinding); err != nil {
+		if errors.IsAlreadyExists(err) {
+			return nil
+		}
+		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
+		return err
+	}
+	klog.Infof("Created rolebinding %s/%s", namespace, name)
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
+	labels := map[string]string{
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+	}
+	for _, sa := range saNames {
+		roleList, err := r.GetRolesFromServiceAccount(sa, fromNs)
+		if err != nil {
+			return err
+		}
+
+		if err := r.CreateRole(roleList, labels, fromNs, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+			}
+			return err
+		}
+		if err := r.CreateRoleBinding(roleList, labels, sa, fromNs, toNs); err != nil {
+			if errors.IsForbidden(err) {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {
+	labels := instance.Spec.RestartLabels
+	pods := &corev1.PodList{}
+	opts := []client.ListOption{
+		client.MatchingLabels(labels),
+		client.InNamespace(namespace),
+	}
+
+	if err := r.List(ctx, pods, opts...); err != nil {
+		klog.Errorf("Cannot list pods with labels %v in namespace %s: %v", labels, namespace, err)
+		return nil, err
+	}
+
+	var saNames []string
+
+	for _, pod := range pods.Items {
+		if len(pod.Spec.ServiceAccountName) != 0 {
+			saNames = append(saNames, pod.Spec.ServiceAccountName)
+		}
+	}
+
+	if len(instance.Spec.ServiceAccountMembers) != 0 {
+		for _, sa := range instance.Spec.ServiceAccountMembers {
+			serviceaccount := &corev1.ServiceAccount{}
+			if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: sa}, serviceaccount); err != nil {
+				klog.Errorf("Failed to get service account %s in namespace %s", sa, namespace)
+				continue
+			}
+			saNames = append(saNames, sa)
+		}
+	}
+
+	saNames = util.ToStringSlice(util.MakeSet(saNames))
+
+	return saNames, nil
+}
+
+func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespace string) ([]string, error) {
+	roleBindings := &rbacv1.RoleBindingList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	if err := r.List(ctx, roleBindings, opts...); err != nil {
+		klog.Errorf("Cannot list rolebindings with in namespace %s: %v", namespace, err)
+		return nil, err
+	}
+
+	var roleNameList []string
+	for _, roleBinding := range roleBindings.Items {
+		for _, subject := range roleBinding.Subjects {
+			if subject.Name == sa && subject.Kind == "ServiceAccount" {
+				roleNameList = append(roleNameList, roleBinding.RoleRef.Name)
+			}
+		}
+	}
+
+	return util.ToStringSlice(util.MakeSet(roleNameList)), nil
+}
+
+func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[string]string, fromNs string, toNs string) error {
+	for _, roleName := range roleNames {
+		originalRole := &rbacv1.Role{}
+		if err := r.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
+			if errors.IsNotFound(err) {
+				klog.Errorf("role %s not found in namespace %s: %v", roleName, fromNs, err)
+				continue
+			}
+			klog.Errorf("Failed to get role %s in namespace %s: %v", roleName, fromNs, err)
+			return err
+		}
+		name := strings.Split(roleName, ".")[0] + "-" + labels["namespace-scope-configmap"]
+		namespace := toNs
+		role := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels:    labels,
+			},
+			Rules: originalRole.Rules,
+		}
+		if err := r.Create(ctx, role); err != nil {
+			if errors.IsAlreadyExists(err) {
+				if err := r.Update(ctx, role); err != nil {
+					klog.Errorf("Failed to update role %s/%s: %v", namespace, name, err)
+					return err
+				}
+				return nil
+			}
+			klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
+			return err
+		}
+		klog.Infof("Created role %s/%s", namespace, name)
+	}
+	return nil
+}
+
 func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs string) error {
 	opts := []client.DeleteAllOfOption{
 		client.MatchingLabels(labels),
@@ -399,59 +541,39 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateUpdateRoleBinding(labels map[string]string, saNames []string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"]
-	namespace := toNs
-	subjects := []rbacv1.Subject{}
-	for _, saName := range saNames {
+func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+	for _, roleName := range roleNames {
+		name := strings.Split(roleName, ".")[0] + "-" + labels["namespace-scope-configmap"]
+		namespace := toNs
+		subjects := []rbacv1.Subject{}
 		subject := rbacv1.Subject{
 			Kind:      "ServiceAccount",
 			Name:      saName,
 			Namespace: fromNs,
 		}
 		subjects = append(subjects, subject)
-	}
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Subjects: subjects,
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedPrefix + labels["namespace-scope-configmap"],
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-
-	if err := r.Create(ctx, roleBinding); err != nil {
-		if errors.IsAlreadyExists(err) {
-			if err := r.UpdateRoleBinding(roleBinding); err != nil {
-				return err
-			}
-			return nil
+		roleBinding := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels:    labels,
+			},
+			Subjects: subjects,
+			RoleRef: rbacv1.RoleRef{
+				Kind:     "Role",
+				Name:     name,
+				APIGroup: "rbac.authorization.k8s.io",
+			},
 		}
-		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created rolebinding %s/%s", namespace, name)
-	return nil
-}
 
-func (r *NamespaceScopeReconciler) UpdateRoleBinding(newRoleBinding *rbacv1.RoleBinding) error {
-	currentRoleBinding := &rbacv1.RoleBinding{}
-	currentRoleBindingKey := types.NamespacedName{Name: newRoleBinding.Name, Namespace: newRoleBinding.Namespace}
-	if err := r.Get(ctx, currentRoleBindingKey, currentRoleBinding); err != nil {
-		klog.Errorf("Cannot get rolebinding %s: %v", currentRoleBindingKey.String(), err)
-	}
-	if len(newRoleBinding.Subjects) != len(currentRoleBinding.Subjects) {
-		if err := r.Update(ctx, newRoleBinding); err != nil {
-			klog.Errorf("Failed to update rolebinding %s: %v", currentRoleBindingKey.String(), err)
+		if err := r.Create(ctx, roleBinding); err != nil {
+			if errors.IsAlreadyExists(err) {
+				return nil
+			}
+			klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
 			return err
 		}
-		klog.Infof("Updated rolebinding %s", currentRoleBindingKey.String())
-		return nil
+		klog.Infof("Created rolebinding %s/%s", namespace, name)
 	}
 	return nil
 }

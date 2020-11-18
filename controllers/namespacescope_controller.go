@@ -18,6 +18,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -415,7 +417,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 			return err
 		}
 
-		if err := r.CreateRole(roleList, labels, fromNs, toNs); err != nil {
+		if err := r.CreateRole(roleList, labels, sa, fromNs, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 			}
@@ -491,7 +493,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 	return util.ToStringSlice(util.MakeSet(roleNameList)), nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[string]string, fromNs string, toNs string) error {
+func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
 		if err := r.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
@@ -502,7 +504,8 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 			klog.Errorf("Failed to get role %s in namespace %s: %v", roleName, fromNs, err)
 			return err
 		}
-		name := strings.Split(roleName, ".")[0] + "-" + labels["namespace-scope-configmap"]
+		hashedServiceAccount := sha256.Sum256([]byte(saName + fromNs))
+		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
@@ -543,7 +546,8 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 
 func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	for _, roleName := range roleNames {
-		name := strings.Split(roleName, ".")[0] + "-" + labels["namespace-scope-configmap"]
+		hashedServiceAccount := sha256.Sum256([]byte(saName + fromNs))
+		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
 		subjects := []rbacv1.Subject{}
 		subject := rbacv1.Subject{

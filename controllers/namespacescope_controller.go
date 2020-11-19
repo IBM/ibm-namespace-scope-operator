@@ -683,6 +683,10 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 				return nil, err
 			}
 		}
+		if ns.Status.Phase == corev1.NamespaceTerminating {
+			klog.Infof("Namespace %s is terminating. Ignore this namespace ", nsMem)
+			continue
+		}
 		validatedNs = append(validatedNs, nsMem)
 	}
 	return validatedNs, nil

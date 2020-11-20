@@ -48,9 +48,20 @@ spec:
                 type: string
               description: Restart pods with the following labels when the namspace list changes
               type: object
+            serviceAccountMembers:
+              description: ServiceAccountMembers are extra service accounts will be bond the roles from other namespaces
+              items:
+                type: string
+              type: array
           type: object
         status:
           description: NamespaceScopeStatus defines the observed state of NamespaceScope
+          properties:
+            validatedMembers:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state of cluster Important: Run "make" to regenerate code after modifying this file'
+              items:
+                type: string
+              type: array
           type: object
       type: object
   version: v1

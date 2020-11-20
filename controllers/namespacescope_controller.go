@@ -93,7 +93,8 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	instance = r.setDefaults(instance)
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
-	if err := r.InitConfigMap(instance); err != nil {
+
+	if err := r.UpdateStatus(instance); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -123,23 +124,41 @@ func (r *NamespaceScopeReconciler) addFinalizer(nss *operatorv1.NamespaceScope) 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) UpdateStatus(instance *operatorv1.NamespaceScope) error {
+	// Get validated namespaces
+	validatedNamespaces, err := r.getValidatedNamespaces(instance)
+	if err != nil {
+		klog.Errorf("Failed to get validated namespaces: %v", err)
+		return err
+	}
+	// Update instance status with the validated namespaces
+	if !util.StringSliceContentEqual(instance.Status.ValidatedMembers, validatedNamespaces) {
+		instance.Status.ValidatedMembers = validatedNamespaces
+		if err := r.Status().Update(ctx, instance); err != nil {
+			klog.Errorf("Failed to update instance %s/%s: %v", instance.Namespace, instance.Name, err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmName := instance.Spec.ConfigmapName
 	cmNamespace := instance.Namespace
+	cmKey := types.NamespacedName{Name: cmName, Namespace: cmNamespace}
+	validatedMembers, err := r.getAllValidatedNamespaceMembers(instance)
+	if err != nil {
+		klog.Errorf("Failed to get all validated namespace members: %v", err)
+		return err
+	}
 
-	if err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: cmNamespace}, cm); err != nil {
-		// If ConfigMap does not exist, create it
+	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
-			cm.Name = cmName
-			cm.Namespace = cmNamespace
 			cm.Labels = map[string]string{constant.NamespaceScopeLabel: "true"}
 			cm.Data = make(map[string]string)
-			nsMembers, err := r.getNamespaceList(instance)
-			if err != nil {
-				return err
-			}
-			cm.Data["namespaces"] = strings.Join(nsMembers, ",")
+			cm.Data["namespaces"] = strings.Join(validatedMembers, ",")
 			// Set NamespaceScope instance as the owner of the ConfigMap.
 			if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
 				klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cmNamespace, cmName, err)
@@ -158,33 +177,13 @@ func (r *NamespaceScopeReconciler) InitConfigMap(instance *operatorv1.NamespaceS
 		return err
 	}
 
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.NamespaceScope) error {
-	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
-	if err := r.Get(ctx, cmKey, cm); err != nil {
-		if errors.IsNotFound(err) {
-			klog.Infof("ConfigMap %s not found ", cmKey.String())
-			return nil
-		}
-		return err
-	}
-
-	// If NamespaceMembers changed, update ConfigMap
-	nsMembers, err := r.getNamespaceList(instance)
-	if err != nil {
-		return err
-	}
-
 	// Get owner uids
 	ownerRefUIDs := util.GetOwnerReferenceUIDs(cm.GetOwnerReferences())
 
-	if util.CheckListDifference(nsMembers, strings.Split(cm.Data["namespaces"], ",")) || !util.UIDContains(ownerRefUIDs, instance.UID) {
-		restartpod := util.CheckListDifference(nsMembers, strings.Split(cm.Data["namespaces"], ","))
+	if util.CheckListDifference(validatedMembers, strings.Split(cm.Data["namespaces"], ",")) || !util.UIDContains(ownerRefUIDs, instance.UID) {
+		restartpod := util.CheckListDifference(validatedMembers, strings.Split(cm.Data["namespaces"], ","))
 		if restartpod {
-			cm.Data["namespaces"] = strings.Join(nsMembers, ",")
+			cm.Data["namespaces"] = strings.Join(validatedMembers, ",")
 		}
 
 		if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
@@ -220,7 +219,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		return err
 	}
 
-	for _, toNs := range instance.Spec.NamespaceMembers {
+	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
 			continue
 		}
@@ -246,7 +245,7 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	if cm.Data["namespaces"] != "" {
 		nsInCm = strings.Split(cm.Data["namespaces"], ",")
 	}
-	nsInCr, err := r.getNamespaceList(instance)
+	nsInCr, err := r.getAllValidatedNamespaceMembers(instance)
 	if err != nil {
 		return err
 	}
@@ -286,7 +285,6 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 
 // When delete NamespaceScope instance, cleanup all RBAC resources
 func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceScope) error {
-	instance = r.setDefaults(instance)
 	labels := map[string]string{
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
@@ -297,7 +295,7 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		return err
 	}
 
-	usingMembers, err := r.getNamespaceList(instance)
+	usingMembers, err := r.getAllValidatedNamespaceMembers(instance)
 	if err != nil {
 		return err
 	}
@@ -618,21 +616,13 @@ func (r *NamespaceScopeReconciler) setDefaults(instance *operatorv1.NamespaceSco
 			constant.DefaultRestartLabelsKey: constant.DefaultRestartLabelsValue,
 		}
 	}
-	if r.checkGetNSAuth() {
-		if validatedNs, err := r.getValidatedNamespaces(instance); err != nil {
-			klog.Errorf("Failed to validate namespace: %v", err)
-		} else {
-			instance.Spec.NamespaceMembers = validatedNs
-		}
-	}
-
 	return instance
 }
 
-func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.NamespaceScope) ([]string, error) {
+func (r *NamespaceScopeReconciler) getAllValidatedNamespaceMembers(instance *operatorv1.NamespaceScope) ([]string, error) {
 	// List the instance using the same configmap
 	crList := &operatorv1.NamespaceScopeList{}
-	namespaceMembersList := util.MakeSet([]string{})
+	namespaceMembers := []string{}
 	if err := r.List(ctx, crList, &client.ListOptions{Namespace: instance.Namespace}); err != nil {
 		klog.Errorf("Cannot list namespacescope with in namespace %s: %v", instance.Namespace, err)
 		return nil, err
@@ -643,16 +633,13 @@ func (r *NamespaceScopeReconciler) getNamespaceList(instance *operatorv1.Namespa
 			continue
 		}
 		if instance.Spec.ConfigmapName == cr.Spec.ConfigmapName {
-			for _, ns := range cr.Spec.NamespaceMembers {
-				namespaceMembersList.Add(ns)
-			}
+			namespaceMembers = append(namespaceMembers, cr.Status.ValidatedMembers...)
 		}
 	}
-	return util.ToStringSlice(namespaceMembersList), nil
+	return util.ToStringSlice(util.MakeSet(namespaceMembers)), nil
 }
 
 func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
-	// List the instance using the same configmap
 	sar := &authorizationv1.SelfSubjectAccessReview{
 		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
@@ -667,27 +654,59 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
 		klog.Errorf("Failed to check if operator has permission to get namespace: %v", err)
 		return false
 	}
+	klog.V(2).Infof("Get Namespace permission, Allowed: %t, Denied: %t, Reason: %s", sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
+	return sar.Status.Allowed
+}
+
+// Check if operator has namespace admin permission
+func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) bool {
+	sar := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Namespace: namespace,
+				Verb:      "*",
+				Group:     "*",
+				Resource:  "*",
+			},
+		},
+	}
+
+	if err := r.Create(ctx, sar); err != nil {
+		klog.Errorf("Failed to check operator namespace admin permission: %v", err)
+		return false
+	}
+
+	klog.V(2).Infof("Namespace admin permission in namesapce %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
 	return sar.Status.Allowed
 }
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {
 	var validatedNs []string
 	for _, nsMem := range instance.Spec.NamespaceMembers {
-		ns := &corev1.Namespace{}
-		key := types.NamespacedName{Name: nsMem}
-		if err := r.Get(ctx, key, ns); err != nil {
-			if errors.IsNotFound(err) {
-				klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
-				continue
-			} else {
-				return nil, err
+		// Check if operator has target namespace admin permission
+		if r.checkNamespaceAdminAuth(nsMem) {
+			// Check if operator has permission to get namespace resource
+			if r.checkGetNSAuth() {
+				ns := &corev1.Namespace{}
+				key := types.NamespacedName{Name: nsMem}
+				if err := r.Get(ctx, key, ns); err != nil {
+					if errors.IsNotFound(err) {
+						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
+						continue
+					} else {
+						return nil, err
+					}
+				}
+				if ns.Status.Phase == corev1.NamespaceTerminating {
+					klog.Infof("Namespace %s is terminating. Ignore this namespace ", nsMem)
+					continue
+				}
 			}
+			validatedNs = append(validatedNs, nsMem)
+		} else {
+			klog.Infof("ibm-namespace-scope-operator has not admin permission in namespace %s", nsMem)
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator has not admin permission in namespace %s", nsMem)
 		}
-		if ns.Status.Phase == corev1.NamespaceTerminating {
-			klog.Infof("Namespace %s is terminating. Ignore this namespace ", nsMem)
-			continue
-		}
-		validatedNs = append(validatedNs, nsMem)
 	}
 	return validatedNs, nil
 }

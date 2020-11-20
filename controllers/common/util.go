@@ -69,6 +69,13 @@ func CheckListDifference(slice1 []string, slice2 []string) bool {
 	return false
 }
 
+//StringSliceContentEqual checks if the contant from two string slice are the same
+func StringSliceContentEqual(slice1, slice2 []string) bool {
+	set1 := MakeSet(slice1)
+	set2 := MakeSet(slice2)
+	return set1.Equal(set2)
+}
+
 func GetOwnerReferenceUIDs(ownerRefs []metav1.OwnerReference) []types.UID {
 	var ownerRefUIDs []types.UID
 	for _, ref := range ownerRefs {

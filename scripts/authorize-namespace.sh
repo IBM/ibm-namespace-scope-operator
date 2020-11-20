@@ -130,11 +130,11 @@ fi
 #
 # Define a role for service accounts
 #
-cat <<EOF | oc apply -n $TARGETNS -f -
+cat <<EOF | oc apply -n $TONS -f -
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: nss-managed-role-from-$TONS
+  name: nss-managed-role-from-$TARGETNS
 rules:
 - apiGroups:
   - "*"
@@ -147,17 +147,17 @@ EOF
 #
 # Bind the service account in the TO namespace to the Role in the target namespace
 #
-cat <<EOF | oc apply -n $TARGETNS -f -
+cat <<EOF | oc apply -n $TONS -f -
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: nss-managed-role-from-$TONS
+  name: nss-managed-rolebinding-from-$TARGETNS
 subjects:
 - kind: ServiceAccount
   name: ibm-namespace-scope-operator
-  namespace: $TONS
+  namespace: $TARGETNS
 roleRef:
   kind: Role
-  name: nss-managed-role-from-$TONS
+  name: nss-managed-role-from-$TARGETNS
   apiGroup: rbac.authorization.k8s.io
 EOF

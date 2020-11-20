@@ -69,6 +69,14 @@ spec:
           type: object
         status:
           description: NamespaceScopeStatus defines the observed state of NamespaceScope
+          properties:
+            validatedMembers:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "make" to regenerate code after modifying
+                this file'
+              items:
+                type: string
+              type: array
           type: object
       type: object
   version: v1

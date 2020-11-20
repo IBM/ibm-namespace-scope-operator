@@ -64,11 +64,13 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	// indicated by the deletion timestamp being set.
 	if !instance.GetDeletionTimestamp().IsZero() {
 		if util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
-			if err := r.DeleteAllRbac(instance); err != nil {
+			instance = r.setDefaults(instance)
+
+			if err := r.UpdateConfigMap(instance); err != nil {
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateConfigMap(instance); err != nil {
+			if err := r.DeleteAllRbac(instance); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -698,14 +700,14 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 					}
 				}
 				if ns.Status.Phase == corev1.NamespaceTerminating {
-					klog.Infof("Namespace %s is terminating. Ignore this namespace ", nsMem)
+					klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)
 					continue
 				}
 			}
 			validatedNs = append(validatedNs, nsMem)
 		} else {
-			klog.Infof("ibm-namespace-scope-operator has not admin permission in namespace %s", nsMem)
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator has not admin permission in namespace %s", nsMem)
+			klog.Infof("ibm-namespace-scope-operator doesn't have admin permission in namespace %s", nsMem)
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator doesn't have admin permission in namespace %s", nsMem)
 		}
 	}
 	return validatedNs, nil

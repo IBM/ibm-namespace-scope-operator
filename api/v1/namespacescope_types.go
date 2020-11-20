@@ -50,6 +50,7 @@ type NamespaceScopeSpec struct {
 type NamespaceScopeStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	ValidatedMembers []string `json:"validatedMembers,omitempty"`
 }
 
 // +kubebuilder:object:root=true

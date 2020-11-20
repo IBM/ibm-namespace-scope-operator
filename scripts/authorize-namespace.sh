@@ -26,7 +26,7 @@ function help() {
     echo "WHERE:"
     echo "  namespace: It is the name of the namespace you wish to authorize.  This namespace MUST exist. "
     echo "             By default, the current namespace is assumed"
-    echo "  -to namespace: It is the name of the namespace of the NamespaceScope operator that you want to authorize."
+    echo "  -to namespace: It is the name of the namespace of the NamespaceScope operator."
     echo "                 This namespace MUST exist.  The default is ibm-common-services."
     echo "  -delete: It removes the ability for the NamespaceScope operator in tonamespace to manage artifacts in the namespace."    
     echo ""
@@ -130,11 +130,11 @@ fi
 #
 # Define a role for service accounts
 #
-cat <<EOF | oc apply -n $TONS -f -
+cat <<EOF | oc apply -n $TARGETNS -f -
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: nss-managed-role-from-$TARGETNS
+  name: nss-managed-role-from-$TONS
 rules:
 - apiGroups:
   - "*"
@@ -147,17 +147,17 @@ EOF
 #
 # Bind the service account in the TO namespace to the Role in the target namespace
 #
-cat <<EOF | oc apply -n $TONS -f -
+cat <<EOF | oc apply -n $TARGETNS -f -
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: nss-managed-rolebinding-from-$TARGETNS
+  name: nss-managed-role-from-$TONS
 subjects:
 - kind: ServiceAccount
   name: ibm-namespace-scope-operator
-  namespace: $TARGETNS
+  namespace: $TONS
 roleRef:
   kind: Role
-  name: nss-managed-role-from-$TARGETNS
+  name: nss-managed-role-from-$TONS
   apiGroup: rbac.authorization.k8s.io
 EOF

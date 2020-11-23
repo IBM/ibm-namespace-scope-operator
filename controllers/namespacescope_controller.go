@@ -712,7 +712,7 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 		} else {
 			klog.Infof("ibm-namespace-scope-operator doesn't have admin permission in namespace %s", nsMem)
 			klog.Infof("NOTE: Please refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem)
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator doesn't have admin permission in namespace %s. NOTE: Please refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem, nsMem)
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator doesn't have admin permission in namespace %s. NOTE: Refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem, nsMem)
 		}
 	}
 	return validatedNs, nil

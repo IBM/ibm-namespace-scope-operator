@@ -239,7 +239,11 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
-		klog.Errorf("ConfigMap %s not found", cmKey.String())
+		if errors.IsNotFound(err) {
+			klog.Infof("ConfigMap %s not found", cmKey.String())
+			return nil
+		}
+		klog.Errorf("Failed to get ConfigMap %s: %v", cmKey.String(), err)
 		return err
 	}
 

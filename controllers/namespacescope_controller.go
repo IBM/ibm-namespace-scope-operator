@@ -158,19 +158,22 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
-			cm.Labels = map[string]string{constant.NamespaceScopeLabel: "true"}
-			cm.Data = make(map[string]string)
-			cm.Data["namespaces"] = strings.Join(validatedMembers, ",")
+			cm.SetName(cmName)
+			cm.SetNamespace(cmNamespace)
+			cm.SetLabels(map[string]string{constant.NamespaceScopeLabel: "true"})
+			cm.Data = map[string]string{"namespaces": strings.Join(validatedMembers, ",")}
 			// Set NamespaceScope instance as the owner of the ConfigMap.
 			if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
-				klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cmNamespace, cmName, err)
+				klog.Errorf("Failed to set owner reference for ConfigMap %s: %v", cmKey.String(), err)
 				return err
 			}
+
 			if err := r.Create(ctx, cm); err != nil {
-				klog.Errorf("Failed to create ConfigMap %s in namespace %s: %v", cmName, cmNamespace, err)
+				klog.Errorf("Failed to create ConfigMap %s: %v", cmKey.String(), err)
 				return err
 			}
-			klog.Infof("Created ConfigMap %s in namespace %s", cmName, cmNamespace)
+			klog.Infof("Created ConfigMap %s", cmKey.String())
+
 			if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
 				return err
 			}
@@ -189,7 +192,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 		}
 
 		if err := controllerutil.SetOwnerReference(instance, cm, r.Scheme); err != nil {
-			klog.Errorf("Failed to set owner reference for ConfigMap %s/%s: %v", cm.Namespace, cm.Name, err)
+			klog.Errorf("Failed to set owner reference for ConfigMap %s: %v", cmKey.String(), err)
 			return err
 		}
 
@@ -197,6 +200,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			klog.Errorf("Failed to update ConfigMap %s : %v", cmKey.String(), err)
 			return err
 		}
+		klog.Infof("Updated ConfigMap %s", cmKey.String())
 
 		// When the configmap updated, restart all the pods with the RestartLabels
 		if restartpod {

@@ -139,5 +139,4 @@ spec:
   maturity: alpha
   provider:
     name: IBM
-  replaces: ibm-namespace-scope-operator.v1.0.1
   version: 1.1.0

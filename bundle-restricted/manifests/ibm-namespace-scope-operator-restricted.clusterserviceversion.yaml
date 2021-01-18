@@ -24,6 +24,7 @@ metadata:
     capabilities: Seamless Upgrades
     containerImage: quay.io/opencloudio/ibm-namespace-scope-operator:latest
     createdAt: "2020-11-12T17:36:42Z"
+    olm.skipRange: '<1.1.0'
     operators.operatorframework.io/builder: operator-sdk-v1.1.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     repository: https://github.com/IBM/ibm-namespace-scope-operator
@@ -139,5 +140,4 @@ spec:
   maturity: alpha
   provider:
     name: IBM
-  replaces: ibm-namespace-scope-operator-restricted.v1.0.1
   version: 1.1.0

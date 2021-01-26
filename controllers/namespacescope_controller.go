@@ -417,6 +417,9 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 	}
 	for _, sa := range saNames {
 		roleList, err := r.GetRolesFromServiceAccount(sa, fromNs)
+
+		klog.V(2).Infof("Roles waiting to be copied: %v", roleList)
+
 		if err != nil {
 			return err
 		}
@@ -508,7 +511,7 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 			klog.Errorf("Failed to get role %s in namespace %s: %v", roleName, fromNs, err)
 			return err
 		}
-		hashedServiceAccount := sha256.Sum256([]byte(saName + fromNs))
+		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
 		role := &rbacv1.Role{
@@ -525,7 +528,7 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 					klog.Errorf("Failed to update role %s/%s: %v", namespace, name, err)
 					return err
 				}
-				return nil
+				continue
 			}
 			klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
 			return err

@@ -557,7 +557,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 
 func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	for _, roleName := range roleNames {
-		hashedServiceAccount := sha256.Sum256([]byte(saName + fromNs))
+		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
 		subjects := []rbacv1.Subject{}

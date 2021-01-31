@@ -495,7 +495,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 	var roleNameList []string
 	for _, roleBinding := range roleBindings.Items {
 		for _, subject := range roleBinding.Subjects {
-			if subject.Name == sa && subject.Kind == "ServiceAccount" {
+			if subject.Name == sa && subject.Kind == "ServiceAccount" && subject.Namespace == namespace {
 				roleNameList = append(roleNameList, roleBinding.RoleRef.Name)
 			}
 		}

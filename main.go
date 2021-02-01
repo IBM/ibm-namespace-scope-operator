@@ -87,6 +87,7 @@ func main() {
 	}
 
 	if err = (&controllers.NamespaceScopeReconciler{
+		Reader:   mgr.GetAPIReader(),
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorderFor("NamespaceScope"),
 		Scheme:   mgr.GetScheme(),

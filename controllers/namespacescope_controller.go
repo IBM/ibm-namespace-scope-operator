@@ -45,6 +45,7 @@ var ctx context.Context
 
 // NamespaceScopeReconciler reconciles a NamespaceScope object
 type NamespaceScopeReconciler struct {
+	client.Reader
 	client.Client
 	Recorder record.EventRecorder
 	Scheme   *runtime.Scheme
@@ -97,18 +98,22 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
 
 	if err := r.UpdateStatus(instance); err != nil {
+		klog.Errorf("Failed to update the status of NamespaceScope %s: %v", req.NamespacedName, err)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.PushRbacToNamespace(instance); err != nil {
+		klog.Errorf("Failed to generate rbac: %v", err)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.DeleteRbacFromUnmanagedNamespace(instance); err != nil {
+		klog.Errorf("Failed to delete rbac: %v", err)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.UpdateConfigMap(instance); err != nil {
+		klog.Errorf("Failed to update configmap: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -156,7 +161,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 		return err
 	}
 
-	if err := r.Get(ctx, cmKey, cm); err != nil {
+	if err := r.Client.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
 			cm.SetName(cmName)
 			cm.SetNamespace(cmNamespace)
@@ -242,7 +247,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
-	if err := r.Get(ctx, cmKey, cm); err != nil {
+	if err := r.Client.Get(ctx, cmKey, cm); err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("ConfigMap %s not found", cmKey.String())
 			return nil
@@ -452,7 +457,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *oper
 		client.InNamespace(namespace),
 	}
 
-	if err := r.List(ctx, pods, opts...); err != nil {
+	if err := r.Client.List(ctx, pods, opts...); err != nil {
 		klog.Errorf("Cannot list pods with labels %v in namespace %s: %v", labels, namespace, err)
 		return nil, err
 	}
@@ -468,7 +473,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *oper
 	if len(instance.Spec.ServiceAccountMembers) != 0 {
 		for _, sa := range instance.Spec.ServiceAccountMembers {
 			serviceaccount := &corev1.ServiceAccount{}
-			if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: sa}, serviceaccount); err != nil {
+			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: sa}, serviceaccount); err != nil {
 				klog.Errorf("Failed to get service account %s in namespace %s", sa, namespace)
 				continue
 			}
@@ -487,7 +492,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 		client.InNamespace(namespace),
 	}
 
-	if err := r.List(ctx, roleBindings, opts...); err != nil {
+	if err := r.Reader.List(ctx, roleBindings, opts...); err != nil {
 		klog.Errorf("Cannot list rolebindings with in namespace %s: %v", namespace, err)
 		return nil, err
 	}
@@ -495,7 +500,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 	var roleNameList []string
 	for _, roleBinding := range roleBindings.Items {
 		for _, subject := range roleBinding.Subjects {
-			if subject.Name == sa && subject.Kind == "ServiceAccount" {
+			if subject.Name == sa && subject.Kind == "ServiceAccount" && subject.Namespace == namespace {
 				roleNameList = append(roleNameList, roleBinding.RoleRef.Name)
 			}
 		}
@@ -507,7 +512,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
-		if err := r.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
+		if err := r.Reader.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
 			if errors.IsNotFound(err) {
 				klog.Errorf("role %s not found in namespace %s: %v", roleName, fromNs, err)
 				continue
@@ -636,7 +641,7 @@ func (r *NamespaceScopeReconciler) getAllValidatedNamespaceMembers(instance *ope
 	// List the instance using the same configmap
 	crList := &operatorv1.NamespaceScopeList{}
 	namespaceMembers := []string{}
-	if err := r.List(ctx, crList, &client.ListOptions{Namespace: instance.Namespace}); err != nil {
+	if err := r.Client.List(ctx, crList, &client.ListOptions{Namespace: instance.Namespace}); err != nil {
 		klog.Errorf("Cannot list namespacescope with in namespace %s: %v", instance.Namespace, err)
 		return nil, err
 	}
@@ -702,7 +707,7 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 			if r.checkGetNSAuth() {
 				ns := &corev1.Namespace{}
 				key := types.NamespacedName{Name: nsMem}
-				if err := r.Get(ctx, key, ns); err != nil {
+				if err := r.Client.Get(ctx, key, ns); err != nil {
 					if errors.IsNotFound(err) {
 						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 						continue

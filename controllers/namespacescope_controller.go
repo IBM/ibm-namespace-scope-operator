@@ -700,7 +700,16 @@ func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) boo
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {
 	var validatedNs []string
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("get operator namespace failed: ", err)
+		return validatedNs, err
+	}
 	for _, nsMem := range instance.Spec.NamespaceMembers {
+		if nsMem == operatorNs {
+			validatedNs = append(validatedNs, nsMem)
+			continue
+		}
 		// Check if operator has target namespace admin permission
 		if r.checkNamespaceAdminAuth(nsMem) {
 			// Check if operator has permission to get namespace resource

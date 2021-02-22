@@ -140,5 +140,5 @@ spec:
   maturity: alpha
   provider:
     name: IBM
-  replaces: ibm-common-service-operator.v1.1.0
+  replaces: ibm-namespace-scope-operator.v1.1.0
   version: 1.1.1

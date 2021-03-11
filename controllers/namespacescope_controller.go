@@ -368,9 +368,14 @@ func (r *NamespaceScopeReconciler) createRoleForNSS(labels map[string]string, fr
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				Verbs:     []string{"*"},
+				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch"},
 				APIGroups: []string{"*"},
 				Resources: []string{"*"},
+			},
+			{
+				Verbs:     []string{"escalate", "bind"},
+				APIGroups: []string{"rbac.authorization.k8s.io"},
+				Resources: []string{"roles"},
 			},
 		},
 	}
@@ -678,24 +683,53 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
 
 // Check if operator has namespace admin permission
 func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) bool {
-	sar := &authorizationv1.SelfSubjectAccessReview{
-		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-			ResourceAttributes: &authorizationv1.ResourceAttributes{
-				Namespace: namespace,
-				Verb:      "*",
-				Group:     "*",
-				Resource:  "*",
+	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch"}
+	for _, verb := range verbs {
+		sar := &authorizationv1.SelfSubjectAccessReview{
+			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+				ResourceAttributes: &authorizationv1.ResourceAttributes{
+					Namespace: namespace,
+					Verb:      verb,
+					Group:     "*",
+					Resource:  "*",
+				},
 			},
-		},
-	}
+		}
+		if err := r.Create(ctx, sar); err != nil {
+			klog.Errorf("Failed to check operator namespace permission: %v", err)
+			return false
+		}
 
-	if err := r.Create(ctx, sar); err != nil {
-		klog.Errorf("Failed to check operator namespace admin permission: %v", err)
-		return false
-	}
+		klog.V(2).Infof("Namespace admin permission in namespace %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
 
-	klog.V(2).Infof("Namespace admin permission in namesapce %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
-	return sar.Status.Allowed
+		if !sar.Status.Allowed {
+			return false
+		}
+	}
+	roleVerbs := []string{"escalate", "bind"}
+	for _, verb := range roleVerbs {
+		sar := &authorizationv1.SelfSubjectAccessReview{
+			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+				ResourceAttributes: &authorizationv1.ResourceAttributes{
+					Namespace: namespace,
+					Verb:      verb,
+					Group:     "rbac.authorization.k8s.io",
+					Resource:  "roles",
+				},
+			},
+		}
+		if err := r.Create(ctx, sar); err != nil {
+			klog.Errorf("Failed to check operator namespace permission: %v", err)
+			return false
+		}
+
+		klog.V(2).Infof("Namespace admin permission in namespace %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
+
+		if !sar.Status.Allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {

@@ -150,6 +150,13 @@ spec:
           - patch
           - update
           - watch
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - roles
+          verbs:
+          - escalate
+          - bind
         serviceAccountName: ibm-namespace-scope-operator
     strategy: deployment
   installModes:

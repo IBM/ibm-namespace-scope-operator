@@ -86,20 +86,7 @@ When the `NamespaceScope` CR is created/updated, it will:
       resources:
       - '*'
       verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-    - apiGroups:
-      - rbac.authorization.k8s.io
-      resources:
-      - roles
-      verbs:
-      - escalate
-      - bind
+      - '*'
     ---
     kind: RoleBinding
     apiVersion: rbac.authorization.k8s.io/v1

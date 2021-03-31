@@ -141,20 +141,7 @@ rules:
   resources:
   - "*"
   verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - roles
-  verbs:
-  - escalate
-  - bind
+  - "*"
 EOF
 
 #

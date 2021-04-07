@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -179,7 +180,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			}
 			klog.Infof("Created ConfigMap %s", cmKey.String())
 
-			if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
 				return err
 			}
 			return nil
@@ -209,7 +210,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 		// When the configmap updated, restart all the pods with the RestartLabels
 		if restartpod {
-			if err := r.RestartPods(instance.Spec.RestartLabels, instance.Namespace); err != nil {
+			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
 				return err
 			}
 		}
@@ -607,17 +608,131 @@ func (r *NamespaceScopeReconciler) DeleteRoleBinding(labels map[string]string, t
 }
 
 // Restart pods in specific namespace with the matching labels
-func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, namespace string) error {
+func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, cm *corev1.ConfigMap, namespace string) error {
 	klog.Infof("Restarting pods in namespace %s with matching labels: %v", namespace, labels)
-	opts := []client.DeleteAllOfOption{
+	opts := []client.ListOption{
 		client.MatchingLabels(labels),
 		client.InNamespace(namespace),
 	}
-	if err := r.DeleteAllOf(ctx, &corev1.Pod{}, opts...); err != nil {
-		klog.Errorf("Failed to restart pods with matching labels %s in namespace %s: %v", labels, namespace, err)
+	podList := &corev1.PodList{}
+	if err := r.Client.List(ctx, podList, opts...); err != nil {
+		klog.Errorf("Failed to list pods with matching labels %s in namespace %s: %v", labels, namespace, err)
 		return err
 	}
+
+	deploymentNameList := make([]string, 0)
+	daemonSetNameList := make([]string, 0)
+	statefulSetNameList := make([]string, 0)
+	for _, pod := range podList.Items {
+		// Check if the pod is required to be refreshed
+		if !needRestart(pod, cm.Name) {
+			continue
+		}
+		// Delete operator pod to refresh it
+		podLabels := pod.GetLabels()
+		_, ok := podLabels["olm.operatorGroup"]
+		if ok {
+			if err := r.Client.Delete(ctx, &pod); err != nil {
+				klog.Errorf("Failed to delete pods %s in namespace %s: %v", pod.Name, pod.Namespace, err)
+				return err
+			}
+			continue
+		}
+		// Rolling update operand pods
+		ownerReferences := pod.GetOwnerReferences()
+		for _, or := range ownerReferences {
+			if !*or.Controller {
+				continue
+			}
+			switch or.Kind {
+			case "ReplicaSet":
+				splitedDN := strings.Split(or.Name, "-")
+				deploymentName := strings.Join(splitedDN[:len(splitedDN)-1], "-")
+				deploymentNameList = append(deploymentNameList, deploymentName)
+			case "DaemonSet":
+				daemonSetNameList = append(daemonSetNameList, or.Name)
+			case "StatefulSet":
+				statefulSetNameList = append(statefulSetNameList, or.Name)
+			}
+		}
+	}
+
+	hashedData := sha256.Sum256([]byte(cm.Data["namespaces"]))
+	annotationValue := hex.EncodeToString(hashedData[0:7])
+
+	// Refresh pods from deployment
+	deploymentNameList = util.ToStringSlice(util.MakeSet(deploymentNameList))
+	for _, deploymentName := range deploymentNameList {
+		deploy := &appsv1.Deployment{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: namespace}, deploy); err != nil {
+			klog.Errorf("Failed to get deployment %s in namespace %s: %v", deploymentName, namespace, err)
+			return err
+		}
+		originalDeploy := deploy
+		if deploy.Spec.Template.Annotations == nil {
+			deploy.Spec.Template.Annotations = make(map[string]string)
+		}
+		deploy.Spec.Template.Annotations["nss.ibm.com/namespaceList"] = annotationValue
+		if err := r.Patch(ctx, deploy, client.MergeFrom(originalDeploy)); err != nil {
+			klog.Errorf("Failed to update the annotation of the deployment %s in namespace %s: %v", deploymentName, namespace, err)
+			return err
+		}
+	}
+
+	// Refresh pods from daemonSet
+	daemonSetNameList = util.ToStringSlice(util.MakeSet(daemonSetNameList))
+	for _, daemonSetName := range daemonSetNameList {
+		daemonSet := &appsv1.DaemonSet{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: daemonSetName, Namespace: namespace}, daemonSet); err != nil {
+			klog.Errorf("Failed to get daemonSet %s in namespace %s: %v", daemonSetName, namespace, err)
+			return err
+		}
+		originalDaemonSet := daemonSet
+		if daemonSet.Spec.Template.Annotations == nil {
+			daemonSet.Spec.Template.Annotations = make(map[string]string)
+		}
+		daemonSet.Spec.Template.Annotations["nss.ibm.com/namespaceList"] = annotationValue
+		if err := r.Patch(ctx, daemonSet, client.MergeFrom(originalDaemonSet)); err != nil {
+			klog.Errorf("Failed to update the annotation of the daemonSet %s in namespace %s: %v", daemonSetName, namespace, err)
+			return err
+		}
+	}
+
+	// Refresh pods from statefulSet
+	statefulSetNameList = util.ToStringSlice(util.MakeSet(statefulSetNameList))
+	for _, statefulSetName := range statefulSetNameList {
+		statefulSet := &appsv1.StatefulSet{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: statefulSetName, Namespace: namespace}, statefulSet); err != nil {
+			klog.Errorf("Failed to get statefulSet %s in namespace %s: %v", statefulSetName, namespace, err)
+			return err
+		}
+		originalStatefulSet := statefulSet
+		if statefulSet.Spec.Template.Annotations == nil {
+			statefulSet.Spec.Template.Annotations = make(map[string]string)
+		}
+		statefulSet.Spec.Template.Annotations["nss.ibm.com/namespaceList"] = annotationValue
+		if err := r.Patch(ctx, statefulSet, client.MergeFrom(originalStatefulSet)); err != nil {
+			klog.Errorf("Failed to update the annotation of the statefulSet %s in namespace %s: %v", statefulSetName, namespace, err)
+			return err
+		}
+	}
 	return nil
+}
+
+func needRestart(pod corev1.Pod, cmName string) bool {
+	for _, volume := range pod.Spec.Volumes {
+		if volume.ConfigMap != nil && volume.ConfigMap.Name == cmName {
+			return true
+		}
+	}
+	for _, container := range pod.Spec.Containers {
+		for _, env := range container.Env {
+			if env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == cmName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *NamespaceScopeReconciler) setDefaults(instance *operatorv1.NamespaceScope) *operatorv1.NamespaceScope {

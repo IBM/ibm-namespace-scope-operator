@@ -34,6 +34,7 @@ import (
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
 	"github.com/IBM/ibm-namespace-scope-operator/controllers"
+	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -65,9 +66,16 @@ func main() {
 		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"): {LabelSelector: "namespace-scope-configmap"},
 	}
 
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("Failed to get operator namespace: ", err)
+		os.Exit(1)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
+		Namespace:          operatorNs,
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "6a4a72f9.ibm.com",

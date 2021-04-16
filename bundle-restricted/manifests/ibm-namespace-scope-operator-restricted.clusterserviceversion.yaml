@@ -47,33 +47,6 @@ spec:
     mediatype: image/png
   install:
     spec:
-      clusterPermissions:
-      - rules:
-        - apiGroups:
-          - rbac.authorization.k8s.io
-          resources:
-          - roles
-          - rolebindings
-          verbs:
-          - get
-          - list
-        - apiGroups:
-          - ''
-          resources:
-          - configmaps
-          - pods
-          verbs:
-          - get
-          - list
-        - apiGroups:
-          - operator.ibm.com
-          resources:
-          - namespacescopes
-          verbs:
-          - get
-          - list
-          - watch
-        serviceAccountName: ibm-namespace-scope-operator
       deployments:
       - name: ibm-namespace-scope-operator
         spec:

@@ -639,8 +639,8 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, cm *cor
 			continue
 		}
 		// Delete operator pod to refresh it
-		podLabels := pod.GetLabels()
-		_, ok := podLabels["olm.operatorGroup"]
+		podAnno := pod.GetAnnotations()
+		_, ok := podAnno["olm.operatorGroup"]
 		if ok {
 			if err := r.Client.Delete(ctx, &pod); err != nil {
 				klog.Errorf("Failed to delete pods %s in namespace %s: %v", pod.Name, pod.Namespace, err)
@@ -678,12 +678,11 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, cm *cor
 			klog.Errorf("Failed to get deployment %s in namespace %s: %v", deploymentName, namespace, err)
 			return err
 		}
-		originalDeploy := deploy
 		if deploy.Spec.Template.Annotations == nil {
 			deploy.Spec.Template.Annotations = make(map[string]string)
 		}
 		deploy.Spec.Template.Annotations["nss.ibm.com/namespaceList"] = annotationValue
-		if err := r.Patch(ctx, deploy, client.MergeFrom(originalDeploy)); err != nil {
+		if err := r.Update(ctx, deploy); err != nil {
 			klog.Errorf("Failed to update the annotation of the deployment %s in namespace %s: %v", deploymentName, namespace, err)
 			return err
 		}

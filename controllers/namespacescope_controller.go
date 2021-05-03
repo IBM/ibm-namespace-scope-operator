@@ -369,7 +369,7 @@ func (r *NamespaceScopeReconciler) createRoleForNSS(labels map[string]string, fr
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch"},
+				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"},
 				APIGroups: []string{"*"},
 				Resources: []string{"*"},
 			},
@@ -797,7 +797,7 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
 
 // Check if operator has namespace admin permission
 func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) bool {
-	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch"}
+	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, verb := range verbs {
 		sar := &authorizationv1.SelfSubjectAccessReview{
 			Spec: authorizationv1.SelfSubjectAccessReviewSpec{

@@ -20,22 +20,32 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"reflect"
 	"strings"
 	"time"
 
+	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
 	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
@@ -887,9 +897,182 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 	return validatedNs, nil
 }
 
+func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, error) {
+	ctx = context.Background()
+
+	// Fetch the NamespaceScope instance
+	instance := &operatorv1.NamespaceScope{}
+
+	if err := r.Client.Get(ctx, req.NamespacedName, instance); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	originalInstance := instance.DeepCopy()
+
+	if !instance.Spec.CSVInjector.Enable {
+		return ctrl.Result{}, nil
+	}
+
+	instance = r.setDefaults(instance)
+
+	klog.Infof("Reconciling NamespaceScope: %s for patching operator CSV", req.NamespacedName)
+
+	csvList := &olmv1alpha1.ClusterServiceVersionList{}
+	configmapName := instance.Spec.ConfigmapName
+	if err := r.Client.List(ctx, csvList); err != nil {
+		klog.Error(err)
+		return ctrl.Result{}, err
+	}
+
+	var candidateOperatorPackage []string
+	for _, csv := range csvList.Items {
+		packages, ok := csv.Annotations[constant.InjectorMark]
+		if !ok {
+			continue
+		}
+		candidateOperatorPackage = append(candidateOperatorPackage, strings.Split(packages, ",")...)
+	}
+
+	candidateSet := util.MakeSet(candidateOperatorPackage)
+	var managedCSVList, patchedCSVList []string
+	for _, packageName := range candidateSet.ToSlice() {
+		managedCSVList = append(managedCSVList, packageName.(string))
+		csvList := &olmv1alpha1.ClusterServiceVersionList{}
+		if err := r.Client.List(ctx, csvList, &client.ListOptions{
+			LabelSelector: labels.SelectorFromSet(map[string]string{
+				"operators.coreos.com/" + packageName.(string) + "." + instance.Namespace: "",
+			})}); err != nil {
+			klog.Error(err)
+			return ctrl.Result{}, err
+		}
+		if len(csvList.Items) == 0 {
+			continue
+		}
+		patchedCSVList = append(patchedCSVList, packageName.(string))
+		csv := csvList.Items[0]
+		csvOriginal := csv.DeepCopy()
+		if csv.Spec.InstallStrategy.StrategyName != "deployment" {
+			continue
+		}
+		deploymentSpecs := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
+		for _, deploy := range deploymentSpecs {
+			podTemplate := deploy.Spec.Template
+			// Insert restartlabel into operator pods
+			if podTemplate.Labels == nil {
+				podTemplate.Labels = make(map[string]string)
+			}
+			for k, v := range instance.Spec.RestartLabels {
+				podTemplate.Labels[k] = v
+			}
+			// Insert WATCH_NAMESPACE into operator pod environment variables
+			for containerIndex, container := range podTemplate.Spec.Containers {
+				var found bool
+				optional := true
+				configmapEnv := corev1.EnvVar{
+					Name: "WATCH_NAMESPACE",
+					ValueFrom: &corev1.EnvVarSource{
+						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+							Optional: &optional,
+							Key:      "namespaces",
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: configmapName,
+							},
+						},
+					},
+				}
+				for index, env := range container.Env {
+					if env.Name == "WATCH_NAMESPACE" {
+						found = true
+						if env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Key == "namespaces" && env.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name == configmapName {
+							continue
+						}
+						container.Env[index] = configmapEnv
+					}
+				}
+				if !found {
+					container.Env = append(container.Env, configmapEnv)
+				}
+				podTemplate.Spec.Containers[containerIndex] = container
+			}
+		}
+
+		if equality.Semantic.DeepDerivative(csvOriginal.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs) {
+			klog.V(3).Infof("No updates in the CSV, skip patching the CSV %s ", csv.Name)
+			continue
+		}
+
+		if err := r.Client.Patch(ctx, &csv, client.MergeFrom(csvOriginal)); err != nil {
+			klog.Error(err)
+			return ctrl.Result{}, err
+		}
+		klog.V(1).Infof("WATCH_NAMESPACE and restart labels are inserted into CSV %s ", csv.Name)
+
+	}
+
+	if util.CheckListDifference(instance.Status.ManagedCSVList, managedCSVList) {
+		instance.Status.ManagedCSVList = managedCSVList
+	}
+
+	if util.CheckListDifference(instance.Status.PatchedCSVList, patchedCSVList) {
+		instance.Status.PatchedCSVList = patchedCSVList
+	}
+
+	if reflect.DeepEqual(originalInstance.Status, instance.Status) {
+		return ctrl.Result{}, nil
+	}
+	if err := r.Client.Status().Patch(ctx, instance, client.MergeFrom(originalInstance)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {
+	return func(object handler.MapObject) []ctrl.Request {
+		nssList := &operatorv1.NamespaceScopeList{}
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.Meta.GetNamespace()})
+		if err != nil {
+			klog.Error(err)
+		}
+		requests := []ctrl.Request{}
+
+		for _, request := range nssList.Items {
+			namespaceName := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+			req := ctrl.Request{NamespacedName: namespaceName}
+			requests = append(requests, req)
+		}
+		return requests
+	}
+}
+
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	err := ctrl.NewControllerManagedBy(mgr).
 		Owns(&corev1.ConfigMap{}).
 		For(&operatorv1.NamespaceScope{}).
-		Complete(r)
+		Complete(reconcile.Func(r.Reconcile))
+	if err != nil {
+		return err
+	}
+	err = ctrl.NewControllerManagedBy(mgr).
+		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&source.Kind{Type: &olmv1alpha1.Subscription{}}, &handler.EnqueueRequestsFromMapFunc{
+			ToRequests: r.csvtoRequest(),
+		}, builder.WithPredicates(predicate.Funcs{
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				// Evaluates to false if the object has been confirmed deleted.
+				return !e.DeleteStateUnknown
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
+				newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
+				return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
+			},
+			CreateFunc: func(e event.CreateEvent) bool {
+				return true
+			},
+		})).
+		Complete(reconcile.Func(r.CSVReconcile))
+	if err != nil {
+		return err
+	}
+	return nil
 }

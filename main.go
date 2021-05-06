@@ -20,6 +20,7 @@ import (
 	"flag"
 	"os"
 
+	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,6 +47,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(operatorv1.AddToScheme(scheme))
+	utilruntime.Must(olmv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

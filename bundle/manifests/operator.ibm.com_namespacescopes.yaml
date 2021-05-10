@@ -54,7 +54,7 @@ spec:
               restartLabels:
                 additionalProperties:
                   type: string
-                description: Restart pods with the following labels when the namspace list changes
+                description: Restart pods with the following labels when the namespace list changes
                 type: object
               serviceAccountMembers:
                 description: ServiceAccountMembers are extra service accounts will be bond the roles from other namespaces

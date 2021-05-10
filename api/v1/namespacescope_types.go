@@ -32,7 +32,7 @@ type NamespaceScopeSpec struct {
 	// ConfigMap name that will contain the list of namespaces to be watched
 	ConfigmapName string `json:"configmapName,omitempty"`
 
-	// Restart pods with the following labels when the namspace list changes
+	// Restart pods with the following labels when the namespace list changes
 	RestartLabels map[string]string `json:"restartLabels,omitempty"`
 
 	// Set the following to true to manually manage permissions for the NamespaceScope operator to extend control over other namespaces

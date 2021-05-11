@@ -24,4 +24,5 @@ const (
 	DefaultRestartLabelsKey      = "intent"
 	DefaultRestartLabelsValue    = "projected"
 	NamespaceScopeServiceAccount = "ibm-namespace-scope-operator"
+	InjectorMark                 = "nss.operator.ibm.com/managed-operators"
 )

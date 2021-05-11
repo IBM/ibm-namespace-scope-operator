@@ -1,4 +1,4 @@
-# NamspaceScope - Manage operator and operand authority across namespaces
+# namespaceScope - Manage operator and operand authority across namespaces
 
 This operator automates the extension of operator watch and service account permission scope to other namespaces in an openshift cluster.
 
@@ -20,7 +20,7 @@ spec:
   # ConfigMap name that will contain the list of namespaces to be watched
   configmapName: namespace-scope
 
-  # Restart pods with the following labels when the namspace list changes
+  # Restart pods with the following labels when the namespace list changes
   restartLabels:
     intent: projected
   ```

@@ -12,6 +12,6 @@ spec:
   # ConfigMap name that will contain the list of namespaces to be watched
   configmapName: namespace-scope
 
-  # Restart pods with the following labels when the namspace list changes
+  # Restart pods with the following labels when the namespace list changes
   restartLabels:
     intent: projected

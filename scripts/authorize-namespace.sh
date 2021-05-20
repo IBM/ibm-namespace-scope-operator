@@ -105,12 +105,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if [ "$TARGETNS" == "$TONS" ]; then
-  echo "Namespace and to namespace cannot be the same namespace."
-  help
-  exit 1
-fi
-
 if [ $DELETE -eq 1 ]; then
   echo "Deleting authorization that the NamespaceScope operator in $TONS to manages namespace $TARGETNS" >&2
 else

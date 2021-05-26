@@ -1018,12 +1018,12 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 	}
 
 	if reflect.DeepEqual(originalInstance.Status, instance.Status) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 	}
 	if err := r.Client.Status().Patch(ctx, instance, client.MergeFrom(originalInstance)); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 }
 
 func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {

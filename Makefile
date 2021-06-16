@@ -69,7 +69,7 @@ endif
 # Current Operator image name
 OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 # Current Operator version
-OPERATOR_VERSION ?= 1.2.0
+OPERATOR_VERSION ?= 1.3.0
 
 # Options for 'bundle-build'
 CHANNELS ?= beta

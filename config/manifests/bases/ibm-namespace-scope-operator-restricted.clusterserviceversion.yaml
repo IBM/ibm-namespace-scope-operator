@@ -49,6 +49,7 @@ spec:
   - email: support@ibm.com
     name: IBM Support
   maturity: alpha
+  minKubeVersion: 1.19
   provider:
     name: IBM
   version: 0.0.0

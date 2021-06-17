@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.0
+    controller-gen.kubebuilder.io/version: v0.5.0
   creationTimestamp: null
   name: namespacescopes.operator.ibm.com
 spec:
@@ -22,10 +22,14 @@ spec:
         description: NamespaceScope is the Schema for the namespacescopes API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -33,10 +37,12 @@ spec:
             description: NamespaceScopeSpec defines the desired state of NamespaceScope
             properties:
               configmapName:
-                description: ConfigMap name that will contain the list of namespaces to be watched
+                description: ConfigMap name that will contain the list of namespaces
+                  to be watched
                 type: string
               csvInjector:
-                description: When CSVInjector is enabled, operator will inject the watch namespace list into operator csv.
+                description: When CSVInjector is enabled, operator will inject the
+                  watch namespace list into operator csv.
                 properties:
                   enable:
                     type: boolean
@@ -44,7 +50,11 @@ spec:
                 - enable
                 type: object
               manualManagement:
-                description: Set the following to true to manually manage permissions for the NamespaceScope operator to extend control over other namespaces The operator may fail when trying to extend permissions to other namespaces, but the cluster administrator can correct this using the authorize-namespace command.
+                description: Set the following to true to manually manage permissions
+                  for the NamespaceScope operator to extend control over other namespaces
+                  The operator may fail when trying to extend permissions to other
+                  namespaces, but the cluster administrator can correct this using
+                  the authorize-namespace command.
                 type: boolean
               namespaceMembers:
                 description: Namespaces that are part of this scope
@@ -54,10 +64,12 @@ spec:
               restartLabels:
                 additionalProperties:
                   type: string
-                description: Restart pods with the following labels when the namespace list changes
+                description: Restart pods with the following labels when the namespace
+                  list changes
                 type: object
               serviceAccountMembers:
-                description: ServiceAccountMembers are extra service accounts will be bond the roles from other namespaces
+                description: ServiceAccountMembers are extra service accounts will
+                  be bond the roles from other namespaces
                 items:
                   type: string
                 type: array

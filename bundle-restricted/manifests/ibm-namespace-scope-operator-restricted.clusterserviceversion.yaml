@@ -151,7 +151,7 @@ spec:
   - email: support@ibm.com
     name: IBM Support
   maturity: alpha
-  minKubeVersion: "1.19"
+  minKubeVersion: "1.19.0"
   provider:
     name: IBM
   replaces: ibm-namespace-scope-operator-restricted.v1.2.0

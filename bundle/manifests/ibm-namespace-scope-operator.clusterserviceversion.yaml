@@ -61,6 +61,7 @@ spec:
           - patch
           - update
           - watch
+          - deletecollection
         - apiGroups:
           - rbac.authorization.k8s.io
           resources:

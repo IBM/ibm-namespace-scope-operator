@@ -24,7 +24,7 @@ function help() {
     echo "SYNTAX:"
     echo "authorize-namespace.sh [namespace | default current namespace] [-to namespace | default ibm-common-services] [-delete]"
     echo "WHERE:"
-    echo "  namespace: It is the name of the namespace you wish to authorize.  This namespace MUST exist. "
+    echo "  namespace: It is the name of the namespace you wish to authorize.  This namespace MUST exist."
     echo "             By default, the current namespace is assumed"
     echo "  -to namespace: It is the name of the namespace of the NamespaceScope operator."
     echo "                 This namespace MUST exist.  The default is ibm-common-services."

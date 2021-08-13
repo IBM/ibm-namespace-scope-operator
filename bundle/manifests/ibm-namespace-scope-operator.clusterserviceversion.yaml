@@ -158,5 +158,6 @@ spec:
     name: IBM
   relatedImages:
   - image: quay.io/opencloudio/ibm-namespace-scope-operator:1.4.0
-    name: ibm-namespace-scope-operator
+    name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
+  replaces: ibm-namespace-scope-operator-restricted.v1.3.0
   version: 1.4.0

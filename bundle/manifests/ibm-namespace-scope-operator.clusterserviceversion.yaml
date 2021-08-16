@@ -25,7 +25,7 @@ metadata:
     containerImage: quay.io/opencloudio/ibm-namespace-scope-operator:latest
     createdAt: "2020-11-2T15:38:33Z"
     olm.skipRange: '<1.4.0'
-    operators.operatorframework.io/builder: operator-sdk-v1.7.1+git
+    operators.operatorframework.io/builder: operator-sdk-v1.10.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
@@ -153,8 +153,11 @@ spec:
   - email: support@ibm.com
     name: IBM Support
   maturity: alpha
-  minKubeVersion: "1.19.0"
+  minKubeVersion: 1.19.0
   provider:
     name: IBM
-  replaces: ibm-namespace-scope-operator.v1.3.0
+  relatedImages:
+  - image: quay.io/opencloudio/ibm-namespace-scope-operator:1.4.0
+    name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
+  replaces: ibm-namespace-scope-operator-restricted.v1.3.0
   version: 1.4.0

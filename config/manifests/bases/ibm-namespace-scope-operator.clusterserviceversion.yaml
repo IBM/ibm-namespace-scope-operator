@@ -53,4 +53,7 @@ spec:
   minKubeVersion: 1.19.0
   provider:
     name: IBM
+  relatedImages:
+  - image: quay.io/opencloudio/ibm-namespace-scope-operator
+    name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
   version: 0.0.0

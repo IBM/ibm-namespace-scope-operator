@@ -72,6 +72,14 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// enable CSVInjector for edb operator multi ns support
+	if instance.Name == "common-service" {
+		instance.Spec.CSVInjector.Enable = true
+		if err := r.Update(ctx, instance); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Check if the NamespaceScope instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	if !instance.GetDeletionTimestamp().IsZero() {

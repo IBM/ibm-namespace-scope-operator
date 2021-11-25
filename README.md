@@ -96,11 +96,25 @@ When the `NamespaceScope` CR is created/updated, it will:
       namespace: FROM_namespaceMembers
     rules:
     - apiGroups:
-      - '*'
+      - "*"
       resources:
-      - '*'
+      - "*"
       verbs:
-      - '*'
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - deletecollection
+    - apiGroups:
+      - rbac.authorization.k8s.io
+      resources:
+      - roles
+      verbs:
+      - escalate
+      - bind
     ---
     kind: RoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
@@ -225,13 +239,13 @@ WHERE:
 
 ```
 
-For example, if you want to grant namespace admin permission of `common-service` to the service account in `ibm-common-services` namespace, you can use the following command
+For example, if you want to grant the namespace scope permission of `common-service` to the service account in `ibm-common-services` namespace, you can use the following command
 
 ```bash
 scripts/authorize-namespace.sh common-service
 ```
 
-if you want to revoke this namespace admin permission, you can use the following command
+if you want to revoke this namespace scope permission, you can use the following command
 
 ```bash
 scripts/authorize-namespace.sh common-service -delete

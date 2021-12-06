@@ -37,18 +37,18 @@ RESTRICTED_CSV_PATH=bundle-restricted/manifests
 
 # Update New CSV
 # replace old CSV value with new one
-sed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-sed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
+gsed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
+gsed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 TIME_STAMP="$(date '+%Y-%m-%dT%H:%M:%S'Z)"
-sed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-sed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
+gsed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
+gsed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 
 echo "Updated New file with new CSV version"
-sed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-sed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
+gsed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
+gsed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 echo "Updated the replaces version line"
 
 #Update version.go to new dev version
-sed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/" version/version.go
-sed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/" Makefile
+gsed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/" version/version.go
+gsed -i "s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/" Makefile
 echo "Updated the version.go with new version"

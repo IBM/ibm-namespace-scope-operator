@@ -69,7 +69,7 @@ endif
 # Current Operator image name
 OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 # Current Operator version
-OPERATOR_VERSION ?= 1.5.0
+OPERATOR_VERSION ?= 2.0.0
 
 # Options for 'bundle-build'
 CHANNELS ?= beta
@@ -170,9 +170,6 @@ e2e-test: ## Run e2e test
 	OPERATOR_NAME=ibm-namespace-scope-operator \
 	OPERATOR_NAMESPACE=ibm-common-services \
 	go test ./controllers/... -coverprofile cover.out
-
-coverage: ## Run code coverage test
-	@common/scripts/codecov.sh ${BUILD_LOCALLY} "controllers"
 
 ##@ Build
 

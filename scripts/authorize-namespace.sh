@@ -143,13 +143,6 @@ rules:
   - update
   - watch
   - deletecollection
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - roles
-  verbs:
-  - escalate
-  - bind
 EOF
 
 #

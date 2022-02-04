@@ -23,13 +23,13 @@ metadata:
       ]
     capabilities: Seamless Upgrades
     containerImage: quay.io/opencloudio/ibm-namespace-scope-operator:latest
-    createdAt: "2021-12-06T12:14:49Z"
-    olm.skipRange: '<1.9.0'
+    createdAt: "2022-02-04T17:14:48Z"
+    olm.skipRange: '<1.10.0'
     operators.operatorframework.io/builder: operator-sdk-v1.10.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
-  name: ibm-namespace-scope-operator.v1.9.0
+  name: ibm-namespace-scope-operator.v1.10.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -157,7 +157,7 @@ spec:
   provider:
     name: IBM
   relatedImages:
-  - image: quay.io/opencloudio/ibm-namespace-scope-operator:1.9.0
+  - image: quay.io/opencloudio/ibm-namespace-scope-operator:1.10.0
     name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
-  replaces: ibm-namespace-scope-operator.v1.8.0
-  version: 1.9.0
+  replaces: ibm-namespace-scope-operator.v1.9.0
+  version: 1.10.0

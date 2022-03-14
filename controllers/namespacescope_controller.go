@@ -837,7 +837,8 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 	}
 
 	for i := 0; i < len(orgRule); i++ {
-		for j := 0; j < len(orgRule[i].Verbs); j++ {
+		j := 0
+		for j < len(orgRule[i].Verbs) {
 			if orgRule[i].Verbs[j] == "*" {
 				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
 				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
@@ -845,7 +846,9 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 			}
 			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
 				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
+				continue
 			}
+			j++
 		}
 		if len(orgRule[i].Verbs) == 0 {
 			orgRule = append(orgRule[:i], orgRule[i+1:]...)

@@ -25,4 +25,7 @@ const (
 	DefaultRestartLabelsValue    = "projected"
 	NamespaceScopeServiceAccount = "ibm-namespace-scope-operator"
 	InjectorMark                 = "nss.operator.ibm.com/managed-operators"
+	NamespaceScopeConfigmapLabelKey = "namespace-scope-configmap"
+	NamespaceScopeConfigmapLabelValue = "ibm-common-services-namespace-scope"
+	NamespaceScopeRuntimePrefix  = "nss-runtime-managed-role-from-"
 )

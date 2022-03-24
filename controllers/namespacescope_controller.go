@@ -128,6 +128,20 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, err
 	}
 
+	for _, namespaceMember := range instance.Spec.NamespaceMembers {
+		if rolesList, _ := r.GetRolesFromNamespace(instance, namespaceMember); rolesList != nil {
+			var summarizedRules []rbacv1.PolicyRule
+			for _, role := range rolesList.Items {
+				summarizedRules = append(summarizedRules, []rbacv1.PolicyRule(role.Rules)...)
+			}
+
+			if err := r.CreateRuntimeRoleToNamespace(instance, summarizedRules); err != nil {
+				klog.Errorf("Failed to create runtime role: %v", err)
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
@@ -255,6 +269,26 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	return nil
 }
 
+func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule) error {
+	fromNs := instance.Namespace
+
+	operatorNs, err := util.GetOperatorNamespace()
+	if err != nil {
+		klog.Error("get operator namespace failed: ", err)
+		return err
+	}
+
+	for _, toNs := range instance.Status.ValidatedMembers {
+		if toNs == operatorNs {
+			continue
+		}
+		if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
@@ -365,6 +399,72 @@ func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.Names
 		}
 		return err
 	}
+
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+	labels := map[string]string{
+		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+	}
+
+	if err := r.createRuntimeRoleForNSS(labels, summarizedRules, fromNs, toNs); err != nil {
+		if errors.IsAlreadyExists(err) {
+			if err := r.updateRuntimeRoleForNSS(labels, summarizedRules, fromNs, toNs); err != nil {
+				return err
+			}
+			return nil
+		}
+		if errors.IsForbidden(err) {
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(labels map[string]string, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+	name := constant.NamespaceScopeRuntimePrefix + fromNs
+	namespace := toNs
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Rules: summarizedRules,
+	}
+	if err := r.Create(ctx, role); err != nil {
+		if errors.IsAlreadyExists(err) {
+			return err
+		}
+		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
+		return err
+	}
+
+	klog.Infof("Created role %s/%s", namespace, name)
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(labels map[string]string, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+	name := constant.NamespaceScopeRuntimePrefix + fromNs
+	namespace := toNs
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Rules: summarizedRules,
+	}
+
+	if err := r.Update(ctx, role); err != nil {
+		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
+		return err
+	}
+
+	klog.Infof("Updated role %s/%s", namespace, name)
 	return nil
 }
 
@@ -463,6 +563,30 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 		}
 	}
 	return nil
+}
+
+func (r *NamespaceScopeReconciler) GetRolesFromNamespace(instance *operatorv1.NamespaceScope, namespace string) (*rbacv1.RoleList, error) {
+	rolesList := &rbacv1.RoleList{}
+
+	// labels := map[string]string{
+	// 	constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapLabelValue,
+	// }
+
+	opts := []client.ListOption{
+		// client.MatchingLabels(labels),
+		client.InNamespace(namespace),
+	}
+	if err := r.Client.List(ctx, rolesList, opts...); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Roles not found in namespace %s: %v", namespace, err)
+			return nil, nil
+		}
+		klog.Errorf("Cannot list roles in namespace %s: %v", namespace, err)
+		// klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
+		return nil, err
+	}
+
+	return rolesList, nil
 }
 
 func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {

@@ -26,6 +26,7 @@ const (
 	NamespaceScopeServiceAccount = "ibm-namespace-scope-operator"
 	InjectorMark                 = "nss.operator.ibm.com/managed-operators"
 	NamespaceScopeConfigmapLabelKey = "namespace-scope-configmap"
-	NamespaceScopeConfigmapLabelValue = "ibm-common-services-namespace-scope"
+	NamespaceScopeConfigmapNSSLabelValue = "ibm-common-services-namespace-scope"
+	NamespaceScopeConfigmapODLMLabelValue = "ibm-common-services-odlm-scope"
 	NamespaceScopeRuntimePrefix  = "nss-runtime-managed-role-from-"
 )

@@ -129,15 +129,18 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	}
 
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
-		if rolesList, _ := r.GetRolesFromNamespace(instance, namespaceMember); rolesList != nil {
+		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); rolesList != nil && len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
-			for _, role := range rolesList.Items {
-				summarizedRules = append(summarizedRules, []rbacv1.PolicyRule(role.Rules)...)
+			for _, role := range rolesList {
+				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace &&
+					role.Name != constant.NamespaceScopeRuntimePrefix+instance.Namespace {
+					summarizedRules = append(summarizedRules, []rbacv1.PolicyRule(role.Rules)...)
+				}
 			}
 
-			if err := r.CreateRuntimeRoleToNamespace(instance, summarizedRules); err != nil {
-				klog.Errorf("Failed to create runtime role: %v", err)
-				return ctrl.Result{}, err
+			if err := r.CreateRuntimeRoleToNamespace(instance, namespaceMember, summarizedRules); err != nil {
+				klog.Infof("Failed to create runtime role: %v", err)
+				return ctrl.Result{}, nil
 			}
 		}
 	}
@@ -269,7 +272,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule) error {
+func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operatorv1.NamespaceScope, toNs string, summarizedRules []rbacv1.PolicyRule) error {
 	fromNs := instance.Namespace
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -277,15 +280,13 @@ func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operat
 		klog.Error("get operator namespace failed: ", err)
 		return err
 	}
-
-	for _, toNs := range instance.Status.ValidatedMembers {
-		if toNs == operatorNs {
-			continue
-		}
-		if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
-			return err
-		}
+	if toNs == operatorNs {
+		return nil
 	}
+	if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -450,6 +451,7 @@ func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(labels map[string]str
 func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(labels map[string]string, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	name := constant.NamespaceScopeRuntimePrefix + fromNs
 	namespace := toNs
+
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -465,6 +467,7 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(labels map[string]str
 	}
 
 	klog.Infof("Updated role %s/%s", namespace, name)
+
 	return nil
 }
 
@@ -565,27 +568,46 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetRolesFromNamespace(instance *operatorv1.NamespaceScope, namespace string) (*rbacv1.RoleList, error) {
-	rolesList := &rbacv1.RoleList{}
-
-	// labels := map[string]string{
-	// 	constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapLabelValue,
-	// }
+func (r *NamespaceScopeReconciler) GetRolesFromNamespace(namespace string) ([]rbacv1.Role, error) {
+	// ibm-common-services-namespace-scope
+	rolesListNSS := &rbacv1.RoleList{}
+	labels := map[string]string{
+		constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapNSSLabelValue,
+	}
 
 	opts := []client.ListOption{
-		// client.MatchingLabels(labels),
+		client.MatchingLabels(labels),
 		client.InNamespace(namespace),
 	}
-	if err := r.Client.List(ctx, rolesList, opts...); err != nil {
+	if err := r.Reader.List(ctx, rolesListNSS, opts...); err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("Roles not found in namespace %s: %v", namespace, err)
 			return nil, nil
 		}
-		klog.Errorf("Cannot list roles in namespace %s: %v", namespace, err)
-		// klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
+		klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
 		return nil, err
 	}
 
+	// ibm-common-services-odlm-scope
+	rolesListODLM := &rbacv1.RoleList{}
+	labels = map[string]string{
+		constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapODLMLabelValue,
+	}
+
+	opts = []client.ListOption{
+		client.MatchingLabels(labels),
+		client.InNamespace(namespace),
+	}
+	if err := r.Reader.List(ctx, rolesListODLM, opts...); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Roles not found in namespace %s: %v", namespace, err)
+			return nil, nil
+		}
+		klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
+		return nil, err
+	}
+
+	rolesList := append(rolesListNSS.Items, rolesListODLM.Items...)
 	return rolesList, nil
 }
 

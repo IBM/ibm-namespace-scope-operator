@@ -129,12 +129,12 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	}
 
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
-		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); rolesList != nil && len(rolesList) != 0 {
+		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
 				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace &&
 					role.Name != constant.NamespaceScopeRuntimePrefix+instance.Namespace {
-					summarizedRules = append(summarizedRules, []rbacv1.PolicyRule(role.Rules)...)
+					summarizedRules = append(summarizedRules, role.Rules...)
 				}
 			}
 

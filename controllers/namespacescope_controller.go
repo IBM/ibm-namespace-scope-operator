@@ -569,46 +569,28 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.
 }
 
 func (r *NamespaceScopeReconciler) GetRolesFromNamespace(namespace string) ([]rbacv1.Role, error) {
-	// ibm-common-services-namespace-scope
-	rolesListNSS := &rbacv1.RoleList{}
-	labels := map[string]string{
-		constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapNSSLabelValue,
-	}
+	rolesList := &rbacv1.RoleList{}
 
 	opts := []client.ListOption{
-		client.MatchingLabels(labels),
 		client.InNamespace(namespace),
 	}
-	if err := r.Reader.List(ctx, rolesListNSS, opts...); err != nil {
+	if err := r.Reader.List(ctx, rolesList, opts...); err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("Roles not found in namespace %s: %v", namespace, err)
 			return nil, nil
 		}
-		klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
+		klog.Errorf("Cannot list roles in namespace %s: %v", namespace, err)
 		return nil, err
 	}
 
-	// ibm-common-services-odlm-scope
-	rolesListODLM := &rbacv1.RoleList{}
-	labels = map[string]string{
-		constant.NamespaceScopeConfigmapLabelKey: constant.NamespaceScopeConfigmapODLMLabelValue,
-	}
-
-	opts = []client.ListOption{
-		client.MatchingLabels(labels),
-		client.InNamespace(namespace),
-	}
-	if err := r.Reader.List(ctx, rolesListODLM, opts...); err != nil {
-		if errors.IsNotFound(err) {
-			klog.Infof("Roles not found in namespace %s: %v", namespace, err)
-			return nil, nil
+	roles := []rbacv1.Role{}
+	for _, role := range rolesList.Items {
+		if _, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok {
+			roles = append(roles, role)
 		}
-		klog.Errorf("Cannot list roles with labels %v in namespace %s: %v", labels, namespace, err)
-		return nil, err
 	}
 
-	rolesList := append(rolesListNSS.Items, rolesListODLM.Items...)
-	return rolesList, nil
+	return roles, nil
 }
 
 func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {

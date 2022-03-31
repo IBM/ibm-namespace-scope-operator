@@ -17,16 +17,16 @@
 package constant
 
 const (
-	NamespaceScopeManagedPrefix  = "nss-managed-role-from-"
-	NamespaceScopeConfigmapName  = "namespace-scope"
-	NamespaceScopeFinalizer      = "finalizer.nss.operator.ibm.com"
-	NamespaceScopeLabel          = "managedby-namespace-scope"
-	DefaultRestartLabelsKey      = "intent"
-	DefaultRestartLabelsValue    = "projected"
-	NamespaceScopeServiceAccount = "ibm-namespace-scope-operator"
-	InjectorMark                 = "nss.operator.ibm.com/managed-operators"
-	NamespaceScopeConfigmapLabelKey = "namespace-scope-configmap"
-	NamespaceScopeConfigmapNSSLabelValue = "ibm-common-services-namespace-scope"
+	NamespaceScopeManagedPrefix           = "nss-managed-role-from-"
+	NamespaceScopeConfigmapName           = "namespace-scope"
+	NamespaceScopeFinalizer               = "finalizer.nss.operator.ibm.com"
+	NamespaceScopeLabel                   = "managedby-namespace-scope"
+	DefaultRestartLabelsKey               = "intent"
+	DefaultRestartLabelsValue             = "projected"
+	NamespaceScopeServiceAccount          = "ibm-namespace-scope-operator"
+	InjectorMark                          = "nss.operator.ibm.com/managed-operators"
+	NamespaceScopeConfigmapLabelKey       = "namespace-scope-configmap"
+	NamespaceScopeConfigmapNSSLabelValue  = "ibm-common-services-namespace-scope"
 	NamespaceScopeConfigmapODLMLabelValue = "ibm-common-services-odlm-scope"
-	NamespaceScopeRuntimePrefix  = "nss-runtime-managed-role-from-"
+	NamespaceScopeRuntimePrefix           = "nss-runtime-managed-role-from-"
 )

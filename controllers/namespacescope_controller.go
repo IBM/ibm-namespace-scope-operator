@@ -132,8 +132,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
-				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace &&
-					role.Name != constant.NamespaceScopeRuntimePrefix+instance.Namespace {
+				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace {
 					summarizedRules = append(summarizedRules, role.Rules...)
 				}
 			}
@@ -405,13 +404,9 @@ func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.Names
 }
 
 func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
-	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
-	}
-
-	if err := r.createRuntimeRoleForNSS(labels, summarizedRules, fromNs, toNs); err != nil {
+	if err := r.createRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
-			if err := r.updateRuntimeRoleForNSS(labels, summarizedRules, fromNs, toNs); err != nil {
+			if err := r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
 				return err
 			}
 			return nil
@@ -425,14 +420,13 @@ func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(labels map[string]string, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	name := constant.NamespaceScopeRuntimePrefix + fromNs
 	namespace := toNs
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    labels,
 		},
 		Rules: summarizedRules,
 	}
@@ -448,7 +442,7 @@ func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(labels map[string]str
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(labels map[string]string, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	name := constant.NamespaceScopeRuntimePrefix + fromNs
 	namespace := toNs
 
@@ -456,7 +450,6 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(labels map[string]str
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    labels,
 		},
 		Rules: summarizedRules,
 	}

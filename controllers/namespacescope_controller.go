@@ -765,6 +765,7 @@ func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, cm *cor
 	daemonSetNameList := make([]string, 0)
 	statefulSetNameList := make([]string, 0)
 	for _, pod := range podList.Items {
+		pod := pod
 		// Check if the pod is required to be refreshed
 		if !needRestart(pod, cm.Name) {
 			continue

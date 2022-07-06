@@ -41,6 +41,7 @@ spec:
                 description: When CSVInjector is enabled, operator will inject the watch namespace list into operator csv.
                 properties:
                   enable:
+                    default: true
                     type: boolean
                 required:
                 - enable

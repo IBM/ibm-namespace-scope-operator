@@ -45,6 +45,7 @@ spec:
                   watch namespace list into operator csv.
                 properties:
                   enable:
+                    default: true
                     type: boolean
                 required:
                 - enable

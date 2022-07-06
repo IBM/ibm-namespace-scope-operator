@@ -46,6 +46,7 @@ type NamespaceScopeSpec struct {
 
 // CSVInjector manages if operator will insert labels and WATCH_NAMESPACES in CSV automatically
 type CSVInjector struct {
+	// +kubebuilder:default:=true
 	Enable bool `json:"enable"`
 }
 

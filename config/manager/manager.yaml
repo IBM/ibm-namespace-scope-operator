@@ -44,7 +44,7 @@ spec:
       containers:
       - command:
         - /namespace-scope-operator-manager
-        image: quay.io/opencloudio/ibm-namespace-scope-operator:latest
+        image: icr.io/cpopen/ibm-namespace-scope-operator:latest
         imagePullPolicy: Always
         name: ibm-namespace-scope-operator
         env:

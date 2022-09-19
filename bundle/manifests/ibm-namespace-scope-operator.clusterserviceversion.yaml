@@ -22,14 +22,14 @@ metadata:
         }
       ]
     capabilities: Seamless Upgrades
-    containerImage: quay.io/opencloudio/ibm-namespace-scope-operator:latest
-    createdAt: "2021-12-06T12:14:49Z"
+    containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
+    createdAt: "2020-11-2T15:38:33Z"
     olm.skipRange: '<2.0.0'
-    operators.operatorframework.io/builder: operator-sdk-v1.10.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.19.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
-  name: ibm-namespace-scope-operator.v2.0.0
+  name: ibm-namespace-scope-operator.v1.15.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -65,7 +65,11 @@ spec:
           - deletecollection
         serviceAccountName: ibm-namespace-scope-operator
       deployments:
-      - name: ibm-namespace-scope-operator
+      - label:
+          app.kubernetes.io/instance: ibm-namespace-scope-operator
+          app.kubernetes.io/managed-by: ibm-namespace-scope-operator
+          app.kubernetes.io/name: ibm-namespace-scope-operator
+        name: ibm-namespace-scope-operator
         spec:
           replicas: 1
           selector:
@@ -106,7 +110,7 @@ spec:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
-                image: quay.io/opencloudio/ibm-namespace-scope-operator:latest
+                image: icr.io/cpopen/ibm-namespace-scope-operator:latest
                 imagePullPolicy: Always
                 name: ibm-namespace-scope-operator
                 resources:
@@ -150,7 +154,6 @@ spec:
   provider:
     name: IBM
   relatedImages:
-  - image: quay.io/opencloudio/ibm-namespace-scope-operator:2.0.0
+  - image: icr.io/cpopen/ibm-namespace-scope-operator:1.15.0
     name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
-  replaces: ibm-namespace-scope-operator.v1.8.0
   version: 2.0.0

@@ -1,4 +1,4 @@
-# Copyright 2021 IBM Corporation
+# Copyright 2022 IBM Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,11 @@ KUBECTL ?= $(shell which kubectl)
 OPERATOR_SDK ?= $(shell which operator-sdk)
 CONTROLLER_GEN ?= $(shell which controller-gen)
 KUSTOMIZE ?= $(shell which kustomize)
+YQ_VERSION=3.4.0
+KUSTOMIZE_VERSION=v3.8.7
+OPERATOR_SDK_VERSION=v1.20.0
+
+GOPATH=$(HOME)/go/bin/
 
 # Specify whether this repo is build locally or not, default values is '1';
 # If set to 1, then you need to also set 'DOCKER_USERNAME' and 'DOCKER_PASSWORD'
@@ -72,8 +77,8 @@ OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 OPERATOR_VERSION ?= 2.0.0
 
 # Options for 'bundle-build'
-CHANNELS ?= beta
-DEFAULT_CHANNEL ?= beta
+CHANNELS ?= v3
+DEFAULT_CHANNEL ?= v3
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif
@@ -126,32 +131,79 @@ undeploy: ## Undeploy controller in the configured Kubernetes cluster in ~/.kube
 	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(OPERATOR_VERSION)
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
-##@ Generate code and manifests
+kustomize: ## Install kustomize
+ifeq (, $(shell which kustomize 2>/dev/null))
+	@{ \
+	set -e ;\
+	mkdir -p bin ;\
+	echo "Downloading kustomize ...";\
+	curl -sSLo - https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/$(KUSTOMIZE_VERSION)/kustomize_$(KUSTOMIZE_VERSION)_$(LOCAL_OS)_$(LOCAL_ARCH).tar.gz | tar xzf - -C bin/ ;\
+	}
+KUSTOMIZE=$(realpath ./bin/kustomize)
+else
+KUSTOMIZE=$(shell which kustomize)
+endif
 
-manifests: ## Generate manifests e.g. CRD, RBAC etc.
+operator-sdk:
+ifneq ($(shell operator-sdk version | cut -d ',' -f1 | cut -d ':' -f2 | tr -d '"' | xargs | cut -d '.' -f1), v1)
+	@{ \
+	if [ "$(shell ./bin/operator-sdk version | cut -d ',' -f1 | cut -d ':' -f2 | tr -d '"' | xargs)" != $(OPERATOR_SDK_VERSION) ]; then \
+		set -e ; \
+		mkdir -p bin ;\
+		echo "Downloading operator-sdk..." ;\
+		curl -sSLo ./bin/operator-sdk "https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$(LOCAL_OS)_$(LOCAL_ARCH)" ;\
+		chmod +x ./bin/operator-sdk ;\
+	fi ;\
+	}
+OPERATOR_SDK=$(realpath ./bin/operator-sdk)
+else
+OPERATOR_SDK=$(shell which operator-sdk)
+endif
+
+yq: ## Install yq, a yaml processor
+ifneq ($(shell yq -V | cut -d ' ' -f 3 | cut -d '.' -f 1 ), 4)
+	@{ \
+	if [ v$(shell ./bin/yq --version | cut -d ' ' -f3) != $(YQ_VERSION) ]; then\
+		set -e ;\
+		mkdir -p bin ;\
+		echo "Downloading yq ...";\
+		curl -sSLO https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_$(LOCAL_OS)_$(LOCAL_ARCH);\
+		mv yq_$(LOCAL_OS)_$(LOCAL_ARCH) ./bin/yq ;\
+		chmod +x ./bin/yq ;\
+	fi;\
+	}
+YQ=$(realpath ./bin/yq)
+else
+YQ=$(shell which yq)
+endif
+
+clis: yq kustomize operator-sdk controller-gen
+
+##@ Generate code and manifests
+manifests: controller-gen ## Generate manifests e.g. CRD, RBAC etc.
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=ibm-namespace-scope-operator webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-generate: ## Generate code e.g. API etc.
+generate: controller-gen ## Generate code e.g. API etc.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-generate-csv-manifests: ## Generate CSV manifests
+generate-csv-manifests: operator-sdk ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: generate manifests ## Generate bundle and restricted bundle manifests
+bundle: clis generate manifests ## Generate bundle and restricted bundle manifests
 	# Generate restricted bundle manifests
-	@yq w -i PROJECT 'projectName' ibm-namespace-scope-operator-restricted
-	@yq w -i config/rbac/role.yaml 'kind' Role
-	@yq w -i config/rbac/role_binding.yaml 'kind' RoleBinding
-	@yq w -i config/rbac/role_binding.yaml 'roleRef.kind' Role
+	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator-restricted
+	@$(YQ) w -i config/rbac/role.yaml 'kind' Role
+	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' RoleBinding
+	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' Role
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
 	--output-dir bundle-restricted
 	@rm -f ./bundle-restricted/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle-restricted
-	@yq w -i PROJECT 'projectName' ibm-namespace-scope-operator
-	@yq w -i config/rbac/role.yaml 'kind' ClusterRole
-	@yq w -i config/rbac/role_binding.yaml 'kind' ClusterRoleBinding
-	@yq w -i config/rbac/role_binding.yaml 'roleRef.kind' ClusterRole
+	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator
+	@$(YQ) w -i config/rbac/role.yaml 'kind' ClusterRole
+	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' ClusterRoleBinding
+	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' ClusterRole
 
 	# Generate bundle manifests
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \

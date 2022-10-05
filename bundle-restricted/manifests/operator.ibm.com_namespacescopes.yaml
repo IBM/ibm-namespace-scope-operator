@@ -34,7 +34,6 @@ spec:
           metadata:
             type: object
           spec:
-            x-kubernetes-preserve-unknown-fields: true
             description: NamespaceScopeSpec defines the desired state of NamespaceScope
             properties:
               configmapName:
@@ -42,11 +41,12 @@ spec:
                   to be watched
                 type: string
               csvInjector:
+                default:
+                  enable: true
                 description: When CSVInjector is enabled, operator will inject the
                   watch namespace list into operator csv.
                 properties:
                   enable:
-                    default: true
                     type: boolean
                 required:
                 - enable
@@ -76,6 +76,7 @@ spec:
                   type: string
                 type: array
             type: object
+            x-kubernetes-preserve-unknown-fields: true
           status:
             description: NamespaceScopeStatus defines the observed state of NamespaceScope
             properties:

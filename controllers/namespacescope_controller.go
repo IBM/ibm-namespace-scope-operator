@@ -479,11 +479,6 @@ func (r *NamespaceScopeReconciler) createRoleForNSS(labels map[string]string, fr
 				APIGroups: []string{"*"},
 				Resources: []string{"*"},
 			},
-			{
-				Verbs:     []string{"escalate", "bind"},
-				APIGroups: []string{"rbac.authorization.k8s.io"},
-				Resources: []string{"roles"},
-			},
 		},
 	}
 	if err := r.Create(ctx, role); err != nil {
@@ -660,13 +655,14 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
+		rules := rulesFilter(originalRole.Rules)
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
 				Labels:    labels,
 			},
-			Rules: originalRole.Rules,
+			Rules: rules,
 		}
 		if err := r.Create(ctx, role); err != nil {
 			if errors.IsAlreadyExists(err) {
@@ -952,30 +948,32 @@ func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) boo
 			return false
 		}
 	}
-	roleVerbs := []string{"escalate", "bind"}
-	for _, verb := range roleVerbs {
-		sar := &authorizationv1.SelfSubjectAccessReview{
-			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authorizationv1.ResourceAttributes{
-					Namespace: namespace,
-					Verb:      verb,
-					Group:     "rbac.authorization.k8s.io",
-					Resource:  "roles",
-				},
-			},
-		}
-		if err := r.Create(ctx, sar); err != nil {
-			klog.Errorf("Failed to check operator namespace permission: %v", err)
-			return false
-		}
+	return true
+}
 
-		klog.V(2).Infof("Namespace admin permission in namespace %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
+func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+	verbMap := make(map[string]struct{})
+	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
+	for _, v := range verbs {
+		verbMap[v] = struct{}{}
+	}
 
-		if !sar.Status.Allowed {
-			return false
+	for i := 0; i < len(orgRule); i++ {
+		for j := 0; j < len(orgRule[i].Verbs); j++ {
+			if orgRule[i].Verbs[j] == "*" {
+				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
+				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
+				continue
+			}
+			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
+				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
+			}
+		}
+		if len(orgRule[i].Verbs) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
 		}
 	}
-	return true
+	return orgRule
 }
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {

@@ -41,12 +41,12 @@ type NamespaceScopeSpec struct {
 	ManualManagement bool `json:"manualManagement,omitempty"`
 
 	// When CSVInjector is enabled, operator will inject the watch namespace list into operator csv.
-	// +kubebuilder:default:={enable:true}
 	CSVInjector CSVInjector `json:"csvInjector,omitempty"`
 }
 
 // CSVInjector manages if operator will insert labels and WATCH_NAMESPACES in CSV automatically
 type CSVInjector struct {
+	// +kubebuilder:default:=true
 	Enable bool `json:"enable"`
 }
 
@@ -67,7 +67,6 @@ type NamespaceScope struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// +kubebuilder:pruning:PreserveUnknownFields
 	Spec   NamespaceScopeSpec   `json:"spec,omitempty"`
 	Status NamespaceScopeStatus `json:"status,omitempty"`
 }

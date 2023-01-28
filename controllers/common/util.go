@@ -129,3 +129,16 @@ func GetOperatorNamespace() (string, error) {
 	klog.V(1).Info("Found namespace", "Namespace", ns)
 	return ns, nil
 }
+
+// GetWatchNamespace returns the Namespace of the operator
+func GetWatchNamespace() string {
+	ns, found := os.LookupEnv("WATCH_NAMESPACE")
+	if !found {
+		ns, err := GetOperatorNamespace()
+		if err != nil {
+			return ""
+		}
+		return ns
+	}
+	return ns
+}

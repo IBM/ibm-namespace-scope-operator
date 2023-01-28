@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -68,20 +69,16 @@ func main() {
 		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"): {LabelSelector: "namespace-scope-configmap"},
 	}
 
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("Failed to get operator namespace: ", err)
-		os.Exit(1)
-	}
+	watchNamespace := util.GetWatchNamespace()
+	watchNamespaceList := strings.Split(watchNamespace, ",")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
-		Namespace:          operatorNs,
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "6a4a72f9.ibm.com",
-		NewCache:           cache.NewFilteredCacheBuilder(gvkLabelMap),
+		NewCache:           cache.MultiNamespacedFilteredCacheBuilder(gvkLabelMap, watchNamespaceList),
 	})
 	if err != nil {
 		klog.Error(err, "unable to start manager")

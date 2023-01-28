@@ -251,14 +251,8 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		return err
 	}
 
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("get operator namespace failed: ", err)
-		return err
-	}
-
 	for _, toNs := range instance.Status.ValidatedMembers {
-		if toNs == operatorNs {
+		if toNs == fromNs {
 			continue
 		}
 		if err := r.generateRBACForNSS(instance, fromNs, toNs); err != nil {
@@ -274,12 +268,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operatorv1.NamespaceScope, toNs string, summarizedRules []rbacv1.PolicyRule) error {
 	fromNs := instance.Namespace
 
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("get operator namespace failed: ", err)
-		return err
-	}
-	if toNs == operatorNs {
+	if toNs == fromNs {
 		return nil
 	}
 	if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
@@ -314,14 +303,8 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("get operator namespace failed: ", err)
-		return err
-	}
-
 	for _, toNs := range unmanagedNss {
-		if toNs == operatorNs {
+		if toNs == instance.Namespace {
 			continue
 		}
 
@@ -349,12 +332,6 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
 	}
 
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("get operator namespace failed: ", err)
-		return err
-	}
-
 	usingMembers, err := r.getAllValidatedNamespaceMembers(instance)
 	if err != nil {
 		return err
@@ -362,7 +339,7 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 	deletedMembers := util.GetListDifference(instance.Spec.NamespaceMembers, usingMembers)
 
 	for _, toNs := range deletedMembers {
-		if toNs == operatorNs {
+		if toNs == instance.Namespace {
 			continue
 		}
 		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
@@ -981,13 +958,8 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {
 	var validatedNs []string
-	operatorNs, err := util.GetOperatorNamespace()
-	if err != nil {
-		klog.Error("get operator namespace failed: ", err)
-		return validatedNs, err
-	}
 	for _, nsMem := range instance.Spec.NamespaceMembers {
-		if nsMem == operatorNs {
+		if nsMem == instance.Namespace {
 			validatedNs = append(validatedNs, nsMem)
 			continue
 		}

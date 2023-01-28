@@ -25,7 +25,7 @@ metadata:
     containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
     createdAt: "2020-12-2T15:38:33Z"
     olm.skipRange: '<1.17.0'
-    operators.operatorframework.io/builder: operator-sdk-v1.19.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.24.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
@@ -94,6 +94,10 @@ spec:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
                 image: icr.io/cpopen/ibm-namespace-scope-operator:latest
                 imagePullPolicy: Always
                 name: ibm-namespace-scope-operator
@@ -136,7 +140,7 @@ spec:
     type: OwnNamespace
   - supported: true
     type: SingleNamespace
-  - supported: false
+  - supported: true
     type: MultiNamespace
   - supported: true
     type: AllNamespaces

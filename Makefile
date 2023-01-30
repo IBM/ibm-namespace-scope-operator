@@ -73,6 +73,12 @@ endif
 
 # Current Operator image name
 OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
+# Current Operator image name
+RESTRICTED_OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted
+# Current Operator bundle image name
+BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
+# Current Restricted Operator bundle image name
+RESTRICTED_BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted-bundle
 # Current Operator version
 OPERATOR_VERSION ?= 2.0.0
 
@@ -240,6 +246,22 @@ build-push-image: $(CONFIG_DOCKER_TARGET) build-operator-image  ## Build and pus
 
 multiarch-image: $(CONFIG_DOCKER_TARGET)  ## Generate multiarch images for operator image.
 	@MAX_PULLING_RETRY=20 RETRY_INTERVAL=30 common/scripts/multiarch_image.sh $(ARTIFACTORYA_REGISTRY) $(OPERATOR_IMAGE_NAME) $(VERSION) $(RELEASE_VERSION)
+
+build-bundle-image:
+	docker build -f bundle.Dockerfile -t $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) .
+	docker push $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION)
+
+build-restricted-bundle-image:
+	docker build -f bundle-restricted.Dockerfile -t $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION) .
+	docker push $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION)
+
+build-catalog-source:
+	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
+	docker push $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
+
+build-restricted-catalog-source:
+	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(RESTRICTED_OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
+	docker push $(QUAY_REGISTRY)/$(RESTRICTED_OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 
 ##@ Help
 help: ## Display this help

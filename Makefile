@@ -83,8 +83,8 @@ RESTRICTED_BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted-bundle
 OPERATOR_VERSION ?= 2.0.0
 
 # Options for 'bundle-build'
-CHANNELS ?= v3
-DEFAULT_CHANNEL ?= v3
+CHANNELS ?= v4.0
+DEFAULT_CHANNEL ?= v4.0
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif
@@ -198,18 +198,16 @@ generate-csv-manifests: operator-sdk ## Generate CSV manifests
 bundle: clis generate manifests ## Generate bundle and restricted bundle manifests
 	# Generate restricted bundle manifests
 	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator-restricted
-	@$(YQ) w -i config/rbac/role.yaml 'kind' Role
-	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' RoleBinding
-	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' Role
+	@$(YQ) w -i config/rbac/role.yaml 'rules[0].apiGroups[0]' operator.ibm.com
+	@$(YQ) w -i config/rbac/role.yaml 'rules[0].resources[0]' namespacescopes
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
 	--output-dir bundle-restricted
 	@rm -f ./bundle-restricted/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle-restricted
 	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator
-	@$(YQ) w -i config/rbac/role.yaml 'kind' ClusterRole
-	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' ClusterRoleBinding
-	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' ClusterRole
+	@$(YQ) w -i config/rbac/role.yaml 'rules[0].apiGroups[0]' "*"
+	@$(YQ) w -i config/rbac/role.yaml 'rules[0].resources[0]' "*"
 
 	# Generate bundle manifests
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \

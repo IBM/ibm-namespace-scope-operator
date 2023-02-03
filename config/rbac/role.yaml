@@ -1,12 +1,12 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: ibm-namespace-scope-operator
 rules:
   - apiGroups:
-      - "*"
+      - '*'
     resources:
-      - "*"
+      - '*'
     verbs:
       - create
       - delete

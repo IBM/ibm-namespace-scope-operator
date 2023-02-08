@@ -83,8 +83,8 @@ RESTRICTED_BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted-bundle
 OPERATOR_VERSION ?= 2.0.0
 
 # Options for 'bundle-build'
-CHANNELS ?= v3
-DEFAULT_CHANNEL ?= v3
+CHANNELS ?= v4.0
+DEFAULT_CHANNEL ?= v4.0
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif

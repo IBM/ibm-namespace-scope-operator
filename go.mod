@@ -26,7 +26,7 @@ require (
 	github.com/evanphx/json-patch v4.9.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-logr/logr v0.2.1 // indirect
-	github.com/go-logr/zapr v0.1.0 // indirect
+	github.com/go-logr/zapr v0.4.0 // indirect
 	github.com/gobuffalo/flect v0.2.0 // indirect
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20191227052852-215e87163ea7 // indirect

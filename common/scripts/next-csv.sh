@@ -33,7 +33,6 @@ if [ -z "$PREVIOUS_DEV_CSV" ]; then
 fi
 
 CSV_PATH=bundle/manifests
-RESTRICTED_CSV_PATH=bundle-restricted/manifests
 
 # Update New CSV
 # replace old CSV value with new one
@@ -45,19 +44,11 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 	sed -i "s/version: $CURRENT_DEV_CSV/version: $NEW_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
 	echo "Updated the bundle/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml"
 	
-	sed -i "/olm.skipRange/s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "s/ibm-namespace-scope-operator-restricted.v$CURRENT_DEV_CSV/ibm-namespace-scope-operator-restricted.v$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "s/ibm-namespace-scope-operator:$CURRENT_DEV_CSV/ibm-namespace-scope-operator:$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "s/version: $CURRENT_DEV_CSV/version: $NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	echo "Updated the bundle-restricted/manifests/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml"
-	
 	TIME_STAMP="$(date '+%Y-%m-%dT%H:%M:%S'Z)"
 	sed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-	sed -i "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 
 	echo "Updated New file with new CSV version"
 	sed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-	sed -i "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 	echo "Updated the replaces version line"
 
 	#Update version.go and Makefile to new dev version
@@ -74,19 +65,11 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
 	sed -i "" "s/version: $CURRENT_DEV_CSV/version: $NEW_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
 	echo "Updated the bundle/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml"
 	
-	sed -i "" "/olm.skipRange/s/$CURRENT_DEV_CSV/$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "" "s/ibm-namespace-scope-operator-restricted.v$CURRENT_DEV_CSV/ibm-namespace-scope-operator-restricted.v$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "" "s/ibm-namespace-scope-operator:$CURRENT_DEV_CSV/ibm-namespace-scope-operator:$NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	sed -i "" "s/version: $CURRENT_DEV_CSV/version: $NEW_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
-	echo "Updated the bundle-restricted/manifests/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml"
-	
 	TIME_STAMP="$(date '+%Y-%m-%dT%H:%M:%S'Z)"
 	sed -i "" "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-	sed -i "" "s/2[0-9]*-[0-9]*-[0-9]*T[0-9]*:[0-9]*:[0-9]*Z/$TIME_STAMP/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 
 	echo "Updated New file with new CSV version"
 	sed -i "" "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $CSV_PATH/ibm-namespace-scope-operator.clusterserviceversion.yaml
-	sed -i "" "s/$PREVIOUS_DEV_CSV/$CURRENT_DEV_CSV/g" $RESTRICTED_CSV_PATH/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 	echo "Updated the replaces version line"
 
 	#Update version.go and Makefile to new dev version

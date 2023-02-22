@@ -23,7 +23,7 @@ metadata:
       ]
     capabilities: Seamless Upgrades
     containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
-    createdAt: "2023-01-27T22:31:13Z"
+    createdAt: "2020-11-2T15:38:33Z"
     olm.skipRange: '<2.0.0'
     operators.operatorframework.io/builder: operator-sdk-v1.24.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
@@ -48,22 +48,6 @@ spec:
     mediatype: image/png
   install:
     spec:
-      permissions:
-      - rules:
-        - apiGroups:
-          - '*'
-          resources:
-          - '*'
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-          - deletecollection
-        serviceAccountName: ibm-namespace-scope-operator
       deployments:
       - label:
           app.kubernetes.io/instance: ibm-namespace-scope-operator
@@ -130,6 +114,22 @@ spec:
                   runAsNonRoot: true
               serviceAccountName: ibm-namespace-scope-operator
               terminationGracePeriodSeconds: 10
+      permissions:
+      - rules:
+        - apiGroups:
+          - '*'
+          resources:
+          - '*'
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+          - deletecollection
+        serviceAccountName: ibm-namespace-scope-operator
     strategy: deployment
   installModes:
   - supported: true

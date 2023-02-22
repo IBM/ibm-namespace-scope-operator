@@ -193,11 +193,8 @@ generate-csv-manifests: operator-sdk ## Generate CSV manifests
 
 bundle: clis generate manifests ## Generate bundle manifests
 	# Generate bundle manifests
-	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator
-
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
-	@rm -f ./bundle/manifests/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test

@@ -73,12 +73,8 @@ endif
 
 # Current Operator image name
 OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
-# Current Operator image name
-RESTRICTED_OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted
 # Current Operator bundle image name
 BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
-# Current Restricted Operator bundle image name
-RESTRICTED_BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-restricted-bundle
 # Current Operator version
 OPERATOR_VERSION ?= 2.0.0
 
@@ -195,26 +191,10 @@ generate: controller-gen ## Generate code e.g. API etc.
 generate-csv-manifests: operator-sdk ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: clis generate manifests ## Generate bundle and restricted bundle manifests
-	# Generate restricted bundle manifests
-	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator-restricted
-	@$(YQ) w -i config/rbac/role.yaml 'kind' Role
-	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' RoleBinding
-	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' Role
-	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
-	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS) \
-	--output-dir bundle-restricted
-	@rm -f ./bundle-restricted/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml
-	- $(OPERATOR_SDK) bundle validate ./bundle-restricted
-	@$(YQ) w -i PROJECT 'projectName' ibm-namespace-scope-operator
-	@$(YQ) w -i config/rbac/role.yaml 'kind' ClusterRole
-	@$(YQ) w -i config/rbac/role_binding.yaml 'kind' ClusterRoleBinding
-	@$(YQ) w -i config/rbac/role_binding.yaml 'roleRef.kind' ClusterRole
-
+bundle: clis generate manifests ## Generate bundle manifests
 	# Generate bundle manifests
 	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
-	@rm -f ./bundle/manifests/ibm-namespace-scope-operator-restricted.clusterserviceversion.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test
@@ -251,17 +231,9 @@ build-bundle-image:
 	docker build -f bundle.Dockerfile -t $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) .
 	docker push $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION)
 
-build-restricted-bundle-image:
-	docker build -f bundle-restricted.Dockerfile -t $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION) .
-	docker push $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION)
-
 build-catalog-source:
 	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 	docker push $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
-
-build-restricted-catalog-source:
-	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(RESTRICTED_BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(RESTRICTED_OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
-	docker push $(QUAY_REGISTRY)/$(RESTRICTED_OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 
 ##@ Help
 help: ## Display this help

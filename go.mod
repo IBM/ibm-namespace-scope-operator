@@ -1,6 +1,6 @@
 module github.com/IBM/ibm-namespace-scope-operator
 
-go 1.20
+go 1.18
 
 require (
 	github.com/IBM/controller-filtered-cache v0.2.1

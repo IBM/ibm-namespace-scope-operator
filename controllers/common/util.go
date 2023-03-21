@@ -18,7 +18,7 @@ package common
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"sort"
 	"strings"

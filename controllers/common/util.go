@@ -18,7 +18,6 @@ package common
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
@@ -114,7 +113,7 @@ func Reverse(original []string) []string {
 func GetOperatorNamespace() (string, error) {
 	ns, found := os.LookupEnv("OPERATOR_NAMESPACE")
 	if !found {
-		nsBytes, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+		nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("namespace not found for current environment")

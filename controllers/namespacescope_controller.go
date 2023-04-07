@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -128,15 +129,15 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, err
 	}
 
+	reg, _ := regexp.Compile(`^nss-managed-role-from.*`)
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
 		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
-				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace {
+				if !reg.MatchString(role.Name) {
 					summarizedRules = append(summarizedRules, role.Rules...)
 				}
 			}
-
 			if err := r.CreateRuntimeRoleToNamespace(instance, namespaceMember, summarizedRules); err != nil {
 				klog.Infof("Failed to create runtime role: %v", err)
 				return ctrl.Result{}, nil

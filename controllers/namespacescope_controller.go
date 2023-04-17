@@ -207,9 +207,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			}
 			klog.Infof("Created ConfigMap %s", cmKey.String())
 
-			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
-				return err
-			}
+			return r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace)
 		}
 		return err
 	}
@@ -282,11 +280,7 @@ func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operat
 	if toNs == operatorNs {
 		return nil
 	}
-	if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
-		return err
-	}
-
-	return err
+	return r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs)
 }
 
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
@@ -406,10 +400,7 @@ func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.Names
 func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	if err := r.createRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
-			if err := r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
-				return err
-			}
-			return err
+			return r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs)
 		}
 		if errors.IsForbidden(err) {
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)

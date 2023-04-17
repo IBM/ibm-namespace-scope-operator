@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -128,18 +129,18 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, err
 	}
 
+	reg, _ := regexp.Compile(`^nss-managed-role-from.*`)
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
 		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
-				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace {
+				if !reg.MatchString(role.Name) {
 					summarizedRules = append(summarizedRules, role.Rules...)
 				}
 			}
-
 			if err := r.CreateRuntimeRoleToNamespace(instance, namespaceMember, summarizedRules); err != nil {
 				klog.Infof("Failed to create runtime role: %v", err)
-				return ctrl.Result{}, nil
+				return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 			}
 		}
 	}
@@ -206,10 +207,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			}
 			klog.Infof("Created ConfigMap %s", cmKey.String())
 
-			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
-				return err
-			}
-			return nil
+			return r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace)
 		}
 		return err
 	}
@@ -282,11 +280,7 @@ func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operat
 	if toNs == operatorNs {
 		return nil
 	}
-	if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
-		return err
-	}
-
-	return nil
+	return r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs)
 }
 
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
@@ -406,10 +400,7 @@ func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.Names
 func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	if err := r.createRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
-			if err := r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
-				return err
-			}
-			return nil
+			return r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs)
 		}
 		if errors.IsForbidden(err) {
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
@@ -1001,9 +992,8 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 					if errors.IsNotFound(err) {
 						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 						continue
-					} else {
-						return nil, err
 					}
+					return nil, err
 				}
 				if ns.Status.Phase == corev1.NamespaceTerminating {
 					klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)

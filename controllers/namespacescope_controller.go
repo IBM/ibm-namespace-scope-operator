@@ -210,7 +210,6 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
 				return err
 			}
-			return nil
 		}
 		return err
 	}
@@ -287,7 +286,7 @@ func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operat
 		return err
 	}
 
-	return nil
+	return err
 }
 
 func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
@@ -410,7 +409,7 @@ func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv
 			if err := r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
 				return err
 			}
-			return nil
+			return err
 		}
 		if errors.IsForbidden(err) {
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
@@ -1002,9 +1001,8 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 					if errors.IsNotFound(err) {
 						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 						continue
-					} else {
-						return nil, err
 					}
+					return nil, err
 				}
 				if ns.Status.Phase == corev1.NamespaceTerminating {
 					klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)

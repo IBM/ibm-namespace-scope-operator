@@ -140,7 +140,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 			}
 			if err := r.CreateRuntimeRoleToNamespace(instance, namespaceMember, summarizedRules); err != nil {
 				klog.Infof("Failed to create runtime role: %v", err)
-				return ctrl.Result{}, nil
+				return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 			}
 		}
 	}

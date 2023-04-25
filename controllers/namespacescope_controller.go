@@ -98,6 +98,11 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, nil
 	}
 
+	if instance.Spec.License.Accept != true {
+		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR. Operator will not proceed until then")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// Add finalizer for this instance
 	if !util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
 		if err := r.addFinalizer(instance); err != nil {

@@ -42,6 +42,9 @@ type NamespaceScopeSpec struct {
 
 	// When CSVInjector is enabled, operator will inject the watch namespace list into operator csv.
 	CSVInjector CSVInjector `json:"csvInjector,omitempty"`
+
+	// +optional
+	License LicenseAcceptance `json:"license,omitempty"`
 }
 
 // CSVInjector manages if operator will insert labels and WATCH_NAMESPACES in CSV automatically
@@ -70,6 +73,23 @@ type NamespaceScope struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Spec   NamespaceScopeSpec   `json:"spec,omitempty"`
 	Status NamespaceScopeStatus `json:"status,omitempty"`
+}
+
+// LicenseAcceptance defines the license specification in CSV
+type LicenseAcceptance struct {
+	// Accepting the license - URL: https://ibm.biz/integration-licenses
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:hidden"
+	// +optional
+	Accept bool `json:"accept"`
+	// The type of license being accepted.
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:hidden"
+	Use string `json:"use,omitempty"`
+	// The license being accepted where the component has multiple.
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:hidden"
+	License string `json:"license,omitempty"`
+	// The license key for this deployment.
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:hidden"
+	Key string `json:"key,omitempty"`
 }
 
 // +kubebuilder:object:root=true

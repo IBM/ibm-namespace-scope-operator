@@ -78,19 +78,19 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, err
 	}
 	
-	license_accepted := false
+	licenseAccepted := false
 	
 	for _, nss := range nssObjectList.Items {
 		if nss.GetDeletionTimestamp() != nil {
 			continue
 		}
 		if nss.Spec.License.Accept {
-			license_accepted = true
+			licenseAccepted = true
 			break
 		}
 	}
 
-	if !license_accepted {
+	if !licenseAccepted {
 		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR. Operator will not proceed until then")
 		return ctrl.Result{Requeue: true}, nil
 	}

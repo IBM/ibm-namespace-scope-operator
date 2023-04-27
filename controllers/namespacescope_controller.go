@@ -116,8 +116,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	}
 
 	if !licenseAccepted {
-		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR. Operator will not proceed until then")
-		return ctrl.Result{Requeue: true}, nil
+		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR.")
 	}
 
 	// Add finalizer for this instance

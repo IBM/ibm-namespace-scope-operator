@@ -77,9 +77,9 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	if err := r.Client.List(ctx, nssObjectList); err != nil {
 		return ctrl.Result{}, err
 	}
-	
+
 	licenseAccepted := false
-	
+
 	for _, nss := range nssObjectList.Items {
 		if nss.GetDeletionTimestamp() != nil {
 			continue

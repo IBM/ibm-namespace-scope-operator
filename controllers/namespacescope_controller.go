@@ -98,6 +98,27 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, nil
 	}
 
+	nssObjectList := &operatorv1.NamespaceScopeList{}
+	if err := r.Client.List(ctx, nssObjectList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	licenseAccepted := false
+
+	for _, nss := range nssObjectList.Items {
+		if nss.GetDeletionTimestamp() != nil {
+			continue
+		}
+		if nss.Spec.License.Accept {
+			licenseAccepted = true
+			break
+		}
+	}
+
+	if !licenseAccepted {
+		klog.Infof("Accept license by changing .spec.license.accept to true in the NamespaceScope: %s", req.NamespacedName)
+	}
+
 	// Add finalizer for this instance
 	if !util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
 		if err := r.addFinalizer(instance); err != nil {

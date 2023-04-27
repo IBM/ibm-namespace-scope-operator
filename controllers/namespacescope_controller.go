@@ -73,28 +73,6 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	nssObjectList := &operatorv1.NamespaceScopeList{}
-	if err := r.Client.List(ctx, nssObjectList); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	licenseAccepted := false
-
-	for _, nss := range nssObjectList.Items {
-		if nss.GetDeletionTimestamp() != nil {
-			continue
-		}
-		if nss.Spec.License.Accept {
-			licenseAccepted = true
-			break
-		}
-	}
-
-	if !licenseAccepted {
-		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR. Operator will not proceed until then")
-		return ctrl.Result{Requeue: true}, nil
-	}
-
 	// Check if the NamespaceScope instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	if !instance.GetDeletionTimestamp().IsZero() {
@@ -118,6 +96,28 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		}
 		klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
 		return ctrl.Result{}, nil
+	}
+
+	nssObjectList := &operatorv1.NamespaceScopeList{}
+	if err := r.Client.List(ctx, nssObjectList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	licenseAccepted := false
+
+	for _, nss := range nssObjectList.Items {
+		if nss.GetDeletionTimestamp() != nil {
+			continue
+		}
+		if nss.Spec.License.Accept {
+			licenseAccepted = true
+			break
+		}
+	}
+
+	if !licenseAccepted {
+		klog.Info("Accept license by changing .spec.license.accept to true in the NamespaceScope CR. Operator will not proceed until then")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Add finalizer for this instance

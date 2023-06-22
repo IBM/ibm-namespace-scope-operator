@@ -12,7 +12,7 @@ require (
 	k8s.io/apimachinery v0.25.1
 	k8s.io/client-go v0.25.1
 	k8s.io/klog v1.0.0
-	sigs.k8s.io/controller-runtime v0.12.3
+	sigs.k8s.io/controller-runtime v0.10.0
 )
 
 require golang.org/x/term v0.5.0 // indirect

@@ -100,7 +100,7 @@ spec:
                       apiVersion: v1
                       fieldPath: metadata.namespace
                 image: icr.io/cpopen/ibm-namespace-scope-operator:latest
-                imagePullPolicy: Always
+                imagePullPolicy: IfNotPresent
                 name: ibm-namespace-scope-operator
                 resources:
                   limits:

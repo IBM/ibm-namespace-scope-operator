@@ -28,7 +28,7 @@ require (
 	github.com/go-logr/logr v0.2.1 // indirect
 	github.com/go-logr/zapr v0.2.0 // indirect
 	github.com/gobuffalo/flect v0.2.0 // indirect
-	github.com/gogo/protobuf v1.3.1 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20191227052852-215e87163ea7 // indirect
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/google/go-cmp v0.5.5 // indirect
@@ -66,7 +66,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
-	k8s.io/apiextensions-apiserver v0.18.6 // indirect
+	k8s.io/apiextensions-apiserver v0.18.18 // indirect
 	k8s.io/klog/v2 v2.2.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20200923155610-8b5066479488 // indirect
 	k8s.io/utils v0.0.0-20200729134348-d5654de09c73 // indirect

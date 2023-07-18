@@ -1062,64 +1062,70 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 			continue
 		}
 		patchedCSVList = append(patchedCSVList, packageName.(string))
-		csv := csvList.Items[0]
-		csvOriginal := csv.DeepCopy()
-		if csv.Spec.InstallStrategy.StrategyName != "deployment" {
-			continue
-		}
-		deploymentSpecs := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
-		for _, deploy := range deploymentSpecs {
-			podTemplate := deploy.Spec.Template
-			// Insert restartlabel into operator pods
-			if podTemplate.Labels == nil {
-				podTemplate.Labels = make(map[string]string)
+
+		for _, c := range csvList.Items {
+			// avoid Implicit memory aliasing in for loop
+			csv := c
+			klog.V(2).Infof("Found CSV %s for packageManifest %s", csv.Name, packageName.(string))
+			csvOriginal := csv.DeepCopy()
+			if csv.Spec.InstallStrategy.StrategyName != "deployment" {
+				continue
 			}
-			for k, v := range instance.Spec.RestartLabels {
-				podTemplate.Labels[k] = v
-			}
-			// Insert WATCH_NAMESPACE into operator pod environment variables
-			for containerIndex, container := range podTemplate.Spec.Containers {
-				var found bool
-				optional := true
-				configmapEnv := corev1.EnvVar{
-					Name: "WATCH_NAMESPACE",
-					ValueFrom: &corev1.EnvVarSource{
-						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-							Optional: &optional,
-							Key:      "namespaces",
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: configmapName,
+			deploymentSpecs := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
+			for _, deploy := range deploymentSpecs {
+				podTemplate := deploy.Spec.Template
+				// Insert restartlabel into operator pods
+				if podTemplate.Labels == nil {
+					podTemplate.Labels = make(map[string]string)
+				}
+				for k, v := range instance.Spec.RestartLabels {
+					podTemplate.Labels[k] = v
+				}
+				// Insert WATCH_NAMESPACE into operator pod environment variables
+				for containerIndex, container := range podTemplate.Spec.Containers {
+					var found bool
+					optional := true
+					configmapEnv := corev1.EnvVar{
+						Name: "WATCH_NAMESPACE",
+						ValueFrom: &corev1.EnvVarSource{
+							ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+								Optional: &optional,
+								Key:      "namespaces",
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: configmapName,
+								},
 							},
 						},
-					},
-				}
-				for index, env := range container.Env {
-					if env.Name == "WATCH_NAMESPACE" {
-						found = true
-						if env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Key == "namespaces" && env.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name == configmapName {
-							continue
-						}
-						container.Env[index] = configmapEnv
 					}
+					for index, env := range container.Env {
+						if env.Name == "WATCH_NAMESPACE" {
+							found = true
+							if env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Key == "namespaces" && env.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name == configmapName {
+								klog.V(2).Infof("WATCH_NAMESPACE ENV variable is found in CSV %s, and match the configmap %s, skip it", csv.Name, configmapName)
+								continue
+							}
+							klog.V(2).Infof("WATCH_NAMESPACE ENV variable is found in CSV %s, but not match the configmap %s, replace it", csv.Name, configmapName)
+							container.Env[index] = configmapEnv
+						}
+					}
+					if !found {
+						klog.V(2).Infof("WATCH_NAMESPACE ENV variable is not found in CSV %s, insert it", csv.Name)
+						container.Env = append(container.Env, configmapEnv)
+					}
+					podTemplate.Spec.Containers[containerIndex] = container
 				}
-				if !found {
-					container.Env = append(container.Env, configmapEnv)
-				}
-				podTemplate.Spec.Containers[containerIndex] = container
 			}
-		}
+			if equality.Semantic.DeepEqual(csvOriginal.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs) {
+				klog.V(3).Infof("No updates in the CSV, skip patching the CSV %s ", csv.Name)
+				continue
+			}
 
-		if equality.Semantic.DeepDerivative(csvOriginal.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs) {
-			klog.V(3).Infof("No updates in the CSV, skip patching the CSV %s ", csv.Name)
-			continue
+			if err := r.Client.Patch(ctx, &csv, client.MergeFrom(csvOriginal)); err != nil {
+				klog.Error(err)
+				return ctrl.Result{}, err
+			}
+			klog.V(1).Infof("WATCH_NAMESPACE and restart labels are inserted into CSV %s ", csv.Name)
 		}
-
-		if err := r.Client.Patch(ctx, &csv, client.MergeFrom(csvOriginal)); err != nil {
-			klog.Error(err)
-			return ctrl.Result{}, err
-		}
-		klog.V(1).Infof("WATCH_NAMESPACE and restart labels are inserted into CSV %s ", csv.Name)
-
 	}
 
 	if util.CheckListDifference(instance.Status.ManagedCSVList, managedCSVList) {

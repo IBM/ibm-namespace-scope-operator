@@ -1084,7 +1084,9 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 		}
 		patchedCSVList = append(patchedCSVList, packageName.(string))
 
-		for _, csv := range csvList.Items {
+		for _, csvInitial := range csvList.Items {
+			// avoid Implicit memory aliasing in for loop
+			csv := csvInitial
 			klog.V(2).Infof("Found CSV %s for packageManifest %s", csv.Name, packageName.(string))
 			csvOriginal := csv.DeepCopy()
 			if csv.Spec.InstallStrategy.StrategyName != "deployment" {

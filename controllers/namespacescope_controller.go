@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -33,9 +34,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,6 +65,7 @@ type NamespaceScopeReconciler struct {
 	client.Client
 	Recorder record.EventRecorder
 	Scheme   *runtime.Scheme
+	Config   *rest.Config
 }
 
 func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
@@ -1069,6 +1074,13 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 
 	candidateSet := util.MakeSet(candidateOperatorPackage)
 	var managedCSVList, patchedCSVList []string
+	var managedWebhookList, patchedWebhookList []string
+	validatedMembers, err := r.getAllValidatedNamespaceMembers(instance)
+	if err != nil {
+		klog.Errorf("Failed to get all validated namespace members: %v", err)
+		return ctrl.Result{}, err
+	}
+
 	for _, packageName := range candidateSet.ToSlice() {
 		managedCSVList = append(managedCSVList, packageName.(string))
 		csvList := &olmv1alpha1.ClusterServiceVersionList{}
@@ -1088,6 +1100,31 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 			// avoid Implicit memory aliasing in for loop
 			csv := c
 			klog.V(2).Infof("Found CSV %s for packageManifest %s", csv.Name, packageName.(string))
+			// check if this csv has patch webhook annotation
+			_, patchWebhook := csv.Annotations[constant.WebhookMark]
+			if patchWebhook {
+				klog.Infof("Patching webhook")
+				// get webhooklists
+				mWebhookList, vWebhookList, err := r.getWebhooks(csv.Name, instance.Namespace)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				// add them to the list
+				for _, mwbh := range mWebhookList {
+					managedWebhookList = append(managedWebhookList, mwbh.GetName())
+					if err := r.patchWebhook(&mwbh, validatedMembers); err != nil {
+						return ctrl.Result{}, err
+					}
+					patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
+				}
+				for _, vwbh := range vWebhookList {
+					managedWebhookList = append(managedWebhookList, vwbh.GetName())
+					if err := r.patchWebhook(&vwbh, validatedMembers); err != nil {
+						return ctrl.Result{}, err
+					}
+					patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
+				}
+			}
 			csvOriginal := csv.DeepCopy()
 			if csv.Spec.InstallStrategy.StrategyName != "deployment" {
 				continue
@@ -1157,6 +1194,14 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 		instance.Status.PatchedCSVList = patchedCSVList
 	}
 
+	if util.CheckListDifference(instance.Status.ManagedWebhookList, managedWebhookList) {
+		instance.Status.ManagedCSVList = managedWebhookList
+	}
+
+	if util.CheckListDifference(instance.Status.PatchedWebhookList, patchedWebhookList) {
+		instance.Status.PatchedCSVList = patchedWebhookList
+	}
+
 	if reflect.DeepEqual(originalInstance.Status, instance.Status) {
 		return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 	}
@@ -1164,6 +1209,73 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
+}
+
+func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) ([]unstructured.Unstructured, []unstructured.Unstructured, error) {
+	dynamic := dynamic.NewForConfigOrDie(r.Config)
+
+	APIGroup := "admissionregistration.k8s.io"
+	APIVersion := "v1"
+	mKind := "MutatingWebhookConfiguration"
+	vKind := "ValidatingWebhookConfiguration"
+
+	labelstring := fmt.Sprintf("%s=%s, %s=%s, %s=%s", constant.OlmKindLabel, "ClusterServiceVersion", constant.OlmOwnerLabel, csvName, constant.OlmOwnerNsLabel, csvNs)
+
+	// list all the mutatingwebhookconfiguration
+	mutatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, mKind, labelstring)
+	if err != nil {
+		klog.Errorf("error getting resource: %v\n", err)
+		return nil, nil, err
+	}
+	// list all the validatingwebhookconfiguration
+	validatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, vKind, labelstring)
+	if err != nil {
+		klog.Errorf("error getting resource: %v\n", err)
+		return nil, nil, err
+	}
+
+	return mutatingwebhookconfigList, validatingwebhookconfigList, nil
+}
+
+func (r *NamespaceScopeReconciler) patchWebhook(webhook *unstructured.Unstructured, nsList []string) error {
+	klog.Infof("Patching webhook scope for : %s", webhook.GetName())
+	items, ok := webhook.Object["webhooks"].([]interface{})
+	skipPatch := false
+	if !ok {
+		return fmt.Errorf("can't get webhookconfiguration")
+	}
+
+	wbhNSSelector := metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: constant.MatchExpressionsKey,
+				Operator: metav1.LabelSelectorOpExists,
+				Values:   nsList},
+		},
+	}
+	for _, item := range items {
+		if nsSeletor := item.(map[string]interface{})["namespaceSelector"]; nsSeletor != nil {
+			if matchExpressions := nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{}); matchExpressions != nil {
+				if namespaces := matchExpressions[0].(map[string]interface{})["values"].([]string); namespaces != nil {
+					if reflect.DeepEqual(namespaces, nsList) {
+						skipPatch = true
+					}
+				}
+			}
+			if !skipPatch {
+				nsSeletor = wbhNSSelector
+			}
+		} else {
+			return fmt.Errorf("can't get namespaceSelector")
+		}
+	}
+
+	klog.Infof("Patching webhook scope for : %s", webhook.GetName())
+	if err := r.Update(ctx, webhook); err != nil {
+		klog.Errorf("failed to update webhook %s: %v", webhook.GetName(), err)
+		return err
+	}
+
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {

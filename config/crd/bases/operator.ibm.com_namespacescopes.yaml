@@ -93,6 +93,14 @@ spec:
                 items:
                   type: string
                 type: array
+              managedWebhookList:
+                items:
+                  type: string
+                type: array
+              patchedWebhookList:
+                items:
+                  type: string
+                type: array
               validatedMembers:
                 items:
                   type: string

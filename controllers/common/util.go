@@ -26,6 +26,7 @@ import (
 	gset "github.com/deckarep/golang-set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
@@ -133,7 +134,7 @@ func GetOperatorNamespace() (string, error) {
 	return ns, nil
 }
 
-func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, group string, version string, resource string, label string) (
+func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, group string, version string, resource string, labelSelector metav1.LabelSelector) (
 	[]unstructured.Unstructured, error) {
 
 	resourceID := schema.GroupVersionResource{
@@ -143,8 +144,9 @@ func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, gro
 	}
 
 	listOptions := metav1.ListOptions{
-		LabelSelector: label,
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 	}
+	klog.Infof("Label options: %s", labels.Set(labelSelector.MatchLabels).String())
 	// Namespace is empty refer to all namespace
 	list, err := dynamic.Resource(resourceID).Namespace("").List(ctx, listOptions)
 

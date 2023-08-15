@@ -45,6 +45,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -1212,23 +1213,31 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 }
 
 func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) ([]unstructured.Unstructured, []unstructured.Unstructured, error) {
-	dynamic := dynamic.NewForConfigOrDie(r.Config)
+	cfg, err := config.GetConfig()
+	if err != nil {
+		klog.Errorf("Failed to get config: %v", err)
+		return nil, nil, err
+	}
+	dynamic := dynamic.NewForConfigOrDie(cfg)
 
 	APIGroup := "admissionregistration.k8s.io"
 	APIVersion := "v1"
-	mKind := "MutatingWebhookConfiguration"
-	vKind := "ValidatingWebhookConfiguration"
+	mKind := "mutatingwebhookconfigurations"
+	vKind := "validatingwebhookconfigurations"
 
-	labelstring := fmt.Sprintf("%s=%s, %s=%s, %s=%s", constant.OlmKindLabel, "ClusterServiceVersion", constant.OlmOwnerLabel, csvName, constant.OlmOwnerNsLabel, csvNs)
-
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{
+		constant.OlmOwnerLabel:   csvName,
+		constant.OlmKindLabel:    "ClusterServiceVersion",
+		constant.OlmOwnerNsLabel: csvNs,
+	}}
 	// list all the mutatingwebhookconfiguration
-	mutatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, mKind, labelstring)
+	mutatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, mKind, labelSelector)
 	if err != nil {
 		klog.Errorf("error getting resource: %v\n", err)
 		return nil, nil, err
 	}
 	// list all the validatingwebhookconfiguration
-	validatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, vKind, labelstring)
+	validatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, vKind, labelSelector)
 	if err != nil {
 		klog.Errorf("error getting resource: %v\n", err)
 		return nil, nil, err
@@ -1238,8 +1247,8 @@ func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) ([]
 }
 
 func (r *NamespaceScopeReconciler) patchWebhook(webhook *unstructured.Unstructured, nsList []string) error {
-	klog.Infof("Patching webhook scope for : %s", webhook.GetName())
-	items, ok := webhook.Object["webhooks"].([]interface{})
+	klog.Infof("Patching webhook scope for: %s", webhook.GetName())
+	_, ok := webhook.Object["webhooks"].([]interface{})
 	skipPatch := false
 	if !ok {
 		return fmt.Errorf("can't get webhookconfiguration")
@@ -1248,28 +1257,33 @@ func (r *NamespaceScopeReconciler) patchWebhook(webhook *unstructured.Unstructur
 	wbhNSSelector := metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{Key: constant.MatchExpressionsKey,
-				Operator: metav1.LabelSelectorOpExists,
+				Operator: metav1.LabelSelectorOpIn,
 				Values:   nsList},
 		},
 	}
-	for _, item := range items {
+	for index, item := range webhook.Object["webhooks"].([]interface{}) {
 		if nsSeletor := item.(map[string]interface{})["namespaceSelector"]; nsSeletor != nil {
-			if matchExpressions := nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{}); matchExpressions != nil {
-				if namespaces := matchExpressions[0].(map[string]interface{})["values"].([]string); namespaces != nil {
-					if reflect.DeepEqual(namespaces, nsList) {
-						skipPatch = true
-					}
+			if nsSeletor.(map[string]interface{})["matchExpressions"] != nil &&
+				nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{})[0].(map[string]interface{})["values"] != nil {
+				namespaces := nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{})[0].(map[string]interface{})["values"].([]interface{})
+				nsInterface := make([]interface{}, len(nsList))
+				for i, v := range nsList {
+					nsInterface[i] = v
+				}
+				if reflect.DeepEqual(namespaces, nsInterface) {
+					skipPatch = true
 				}
 			}
 			if !skipPatch {
-				nsSeletor = wbhNSSelector
+				klog.Infof("Patching webhook scope for: %s to %s", webhook.GetName(), nsList)
+				webhook.Object["webhooks"].([]interface{})[index].(map[string]interface{})["namespaceSelector"] = wbhNSSelector
 			}
 		} else {
 			return fmt.Errorf("can't get namespaceSelector")
 		}
 	}
 
-	klog.Infof("Patching webhook scope for : %s", webhook.GetName())
+	klog.Infof("Patching webhook scope for: %s", webhook.GetName())
 	if err := r.Update(ctx, webhook); err != nil {
 		klog.Errorf("failed to update webhook %s: %v", webhook.GetName(), err)
 		return err

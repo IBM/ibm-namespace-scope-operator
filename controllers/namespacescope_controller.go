@@ -1196,11 +1196,11 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 	}
 
 	if util.CheckListDifference(instance.Status.ManagedWebhookList, managedWebhookList) {
-		instance.Status.ManagedCSVList = managedWebhookList
+		instance.Status.ManagedWebhookList = managedWebhookList
 	}
 
 	if util.CheckListDifference(instance.Status.PatchedWebhookList, patchedWebhookList) {
-		instance.Status.PatchedCSVList = patchedWebhookList
+		instance.Status.PatchedWebhookList = patchedWebhookList
 	}
 
 	if reflect.DeepEqual(originalInstance.Status, instance.Status) {

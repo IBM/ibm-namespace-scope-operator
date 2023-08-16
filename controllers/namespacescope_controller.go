@@ -27,7 +27,8 @@ import (
 	"time"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
-	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
+	ownerutil "github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,23 +36,19 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
@@ -70,7 +67,7 @@ type NamespaceScopeReconciler struct {
 	Config   *rest.Config
 }
 
-func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx = context.Background()
 
 	// Fetch the NamespaceScope instance
@@ -1112,16 +1109,16 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 					return ctrl.Result{}, err
 				}
 				// add them to the list
-				for _, mwbh := range mWebhookList {
+				for _, mwbh := range *&mWebhookList.Items {
 					managedWebhookList = append(managedWebhookList, mwbh.GetName())
-					if err := r.patchWebhook(&mwbh, validatedMembers); err != nil {
+					if err := r.patchMutatingWebhook(mwbh, validatedMembers); err != nil {
 						return ctrl.Result{}, err
 					}
 					patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
 				}
-				for _, vwbh := range vWebhookList {
+				for _, vwbh := range *&vWebhookList.Items {
 					managedWebhookList = append(managedWebhookList, vwbh.GetName())
-					if err := r.patchWebhook(&vwbh, validatedMembers); err != nil {
+					if err := r.patchValidatingWebhook(vwbh, validatedMembers); err != nil {
 						return ctrl.Result{}, err
 					}
 					patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
@@ -1213,90 +1210,113 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 }
 
-func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) ([]unstructured.Unstructured, []unstructured.Unstructured, error) {
-	cfg, err := config.GetConfig()
-	if err != nil {
-		klog.Errorf("Failed to get config: %v", err)
-		return nil, nil, err
-	}
-	dynamic := dynamic.NewForConfigOrDie(cfg)
+func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) (*admissionv1.MutatingWebhookConfigurationList, *admissionv1.ValidatingWebhookConfigurationList, error) {
+	vWebhookList := &admissionv1.ValidatingWebhookConfigurationList{}
+	mWebhookList := &admissionv1.MutatingWebhookConfigurationList{}
 
-	APIGroup := "admissionregistration.k8s.io"
-	APIVersion := "v1"
-	mKind := "mutatingwebhookconfigurations"
-	vKind := "validatingwebhookconfigurations"
+	labelSelector := labels.SelectorFromSet(
+		map[string]string{
+			ownerutil.OwnerKey:          csvName,
+			ownerutil.OwnerKind:         "ClusterServiceVersion",
+			ownerutil.OwnerNamespaceKey: csvNs,
+		},
+	)
 
-	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{
-		ownerutil.OwnerKey:          csvName,
-		ownerutil.OwnerKind:         "ClusterServiceVersion",
-		ownerutil.OwnerNamespaceKey: csvNs,
-	}}
-	// list all the mutatingwebhookconfiguration
-	mutatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, mKind, labelSelector)
-	if err != nil {
-		klog.Errorf("error getting resource: %v\n", err)
-		return nil, nil, err
-	}
-	// list all the validatingwebhookconfiguration
-	validatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, vKind, labelSelector)
-	if err != nil {
-		klog.Errorf("error getting resource: %v\n", err)
-		return nil, nil, err
+	if err := r.Client.List(ctx, vWebhookList, &client.ListOptions{
+		LabelSelector: labelSelector,
+	}); err != nil {
+		return mWebhookList, vWebhookList, err
 	}
 
-	return mutatingwebhookconfigList, validatingwebhookconfigList, nil
+	if err := r.Client.List(ctx, mWebhookList, &client.ListOptions{
+		LabelSelector: labelSelector,
+	}); err != nil {
+		return mWebhookList, vWebhookList, err
+	}
+
+	return mWebhookList, vWebhookList, nil
 }
 
-func (r *NamespaceScopeReconciler) patchWebhook(webhook *unstructured.Unstructured, nsList []string) error {
-	klog.Infof("Patching webhook scope for: %s", webhook.GetName())
-	_, ok := webhook.Object["webhooks"].([]interface{})
-	skipPatch := false
-	if !ok {
-		return fmt.Errorf("can't get webhookconfiguration")
-	}
+func (r *NamespaceScopeReconciler) patchMutatingWebhook(webhookconfig admissionv1.MutatingWebhookConfiguration, nsList []string) error {
+	klog.Infof("Patching mutatingwebhookconfig scope for: %s", &webhookconfig.Name)
+	for _, webhook := range webhookconfig.Webhooks {
+		klog.Infof("Patching webhook scope for: %s", webhook.Name)
+		skipPatch := false
+		wbhNSSelector := metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: constant.MatchExpressionsKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   nsList},
+			},
+		}
 
-	wbhNSSelector := metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{Key: constant.MatchExpressionsKey,
-				Operator: metav1.LabelSelectorOpIn,
-				Values:   nsList},
-		},
-	}
-	for index, item := range webhook.Object["webhooks"].([]interface{}) {
-		if nsSeletor := item.(map[string]interface{})["namespaceSelector"]; nsSeletor != nil {
-			if nsSeletor.(map[string]interface{})["matchExpressions"] != nil &&
-				nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{})[0].(map[string]interface{})["values"] != nil {
-				namespaces := nsSeletor.(map[string]interface{})["matchExpressions"].([]interface{})[0].(map[string]interface{})["values"].([]interface{})
-				nsInterface := make([]interface{}, len(nsList))
-				for i, v := range nsList {
-					nsInterface[i] = v
-				}
-				if reflect.DeepEqual(namespaces, nsInterface) {
+		if webhook.NamespaceSelector == nil {
+			return fmt.Errorf("can't get namespaceSelector")
+		}
+
+		if webhook.NamespaceSelector.MatchExpressions != nil {
+			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
+				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
+				if reflect.DeepEqual(namespaces, nsList) {
 					skipPatch = true
 				}
 			}
-			if !skipPatch {
-				klog.Infof("Patching webhook scope for: %s to %s", webhook.GetName(), nsList)
-				webhook.Object["webhooks"].([]interface{})[index].(map[string]interface{})["namespaceSelector"] = wbhNSSelector
-			}
-		} else {
-			return fmt.Errorf("can't get namespaceSelector")
+		}
+
+		if !skipPatch {
+			webhook.NamespaceSelector = &wbhNSSelector
 		}
 	}
-
-	klog.Infof("Patching webhook scope for: %s", webhook.GetName())
-	if err := r.Update(ctx, webhook); err != nil {
-		klog.Errorf("failed to update webhook %s: %v", webhook.GetName(), err)
+	klog.Infof("Patching webhook scope for: %s", &webhookconfig.Name)
+	if err := r.Client.Update(ctx, &webhookconfig); err != nil {
+		klog.Errorf("failed to update webhook %s: %v", webhookconfig.Name, err)
 		return err
 	}
-
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {
-	return func(object handler.MapObject) []ctrl.Request {
+func (r *NamespaceScopeReconciler) patchValidatingWebhook(webhookconfig admissionv1.ValidatingWebhookConfiguration, nsList []string) error {
+	klog.Infof("Patching validatingwebhookconfig scope for: %s", &webhookconfig.Name)
+	for _, webhook := range webhookconfig.Webhooks {
+		klog.Infof("Patching webhook scope for: %s", webhook.Name)
+		skipPatch := false
+		wbhNSSelector := metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: constant.MatchExpressionsKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   nsList},
+			},
+		}
+
+		if webhook.NamespaceSelector == nil {
+			return fmt.Errorf("can't get namespaceSelector")
+		}
+		if webhook.NamespaceSelector.MatchExpressions != nil {
+			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
+				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
+				if reflect.DeepEqual(namespaces, nsList) {
+					skipPatch = true
+				}
+			}
+		}
+
+		if !skipPatch {
+			webhook.NamespaceSelector = &wbhNSSelector
+		}
+	}
+
+	klog.Infof("Patching webhookconfig scope for: %s", &webhookconfig.Name)
+	if err := r.Client.Update(ctx, &webhookconfig); err != nil {
+		klog.Errorf("failed to update webhook %s: %v", &webhookconfig.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) csvtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
 		nssList := &operatorv1.NamespaceScopeList{}
-		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.Meta.GetNamespace()})
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
 		if err != nil {
 			klog.Error(err)
 		}
@@ -1315,29 +1335,28 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := ctrl.NewControllerManagedBy(mgr).
 		Owns(&corev1.ConfigMap{}).
 		For(&operatorv1.NamespaceScope{}).
-		Complete(reconcile.Func(r.Reconcile))
+		Complete(r)
 	if err != nil {
 		return err
 	}
 	err = ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, &handler.EnqueueRequestsFromMapFunc{
-			ToRequests: r.csvtoRequest(),
-		}, builder.WithPredicates(predicate.Funcs{
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				// Evaluates to false if the object has been confirmed deleted.
-				return !e.DeleteStateUnknown
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
-				newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
-				return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
-			},
-			CreateFunc: func(e event.CreateEvent) bool {
-				return true
-			},
-		})).
-		Complete(reconcile.Func(r.CSVReconcile))
+		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
+					newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
+					return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
+		Complete(r)
 	if err != nil {
 		return err
 	}

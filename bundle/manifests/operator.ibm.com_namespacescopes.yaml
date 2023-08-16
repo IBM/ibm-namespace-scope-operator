@@ -99,11 +99,11 @@ spec:
                 items:
                   type: string
                 type: array
-              patchedCSVList:
+              managedWebhookList:
                 items:
                   type: string
                 type: array
-              managedWebhookList:
+              patchedCSVList:
                 items:
                   type: string
                 type: array

@@ -25,7 +25,7 @@ const (
 	DefaultRestartLabelsValue       = "projected"
 	NamespaceScopeServiceAccount    = "ibm-namespace-scope-operator"
 	InjectorMark                    = "nss.operator.ibm.com/managed-operators"
-	WebhookMark                     = "nss.operator.ibm.com/patch-webhook"
+	WebhookMark                     = "nss.operator.ibm.com/managed-webhooks"
 	NamespaceScopeConfigmapLabelKey = "namespace-scope-configmap"
 	NamespaceScopeRuntimePrefix     = "nss-runtime-managed-role-from-"
 	MatchExpressionsKey             = "kubernetes.io/metadata.name"

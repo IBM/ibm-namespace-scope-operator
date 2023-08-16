@@ -27,6 +27,7 @@ import (
 	"time"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1104,7 +1105,7 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 			// check if this csv has patch webhook annotation
 			_, patchWebhook := csv.Annotations[constant.WebhookMark]
 			if patchWebhook {
-				klog.Infof("Patching webhook")
+				klog.Infof("Patching webhook configuration for CSV %s", csv.Name)
 				// get webhooklists
 				mWebhookList, vWebhookList, err := r.getWebhooks(csv.Name, instance.Namespace)
 				if err != nil {
@@ -1226,9 +1227,9 @@ func (r *NamespaceScopeReconciler) getWebhooks(csvName string, csvNs string) ([]
 	vKind := "validatingwebhookconfigurations"
 
 	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{
-		constant.OlmOwnerLabel:   csvName,
-		constant.OlmKindLabel:    "ClusterServiceVersion",
-		constant.OlmOwnerNsLabel: csvNs,
+		ownerutil.OwnerKey:          csvName,
+		ownerutil.OwnerKind:         "ClusterServiceVersion",
+		ownerutil.OwnerNamespaceKey: csvNs,
 	}}
 	// list all the mutatingwebhookconfiguration
 	mutatingwebhookconfigList, err := util.GetResourcesDynamically(ctx, dynamic, APIGroup, APIVersion, mKind, labelSelector)

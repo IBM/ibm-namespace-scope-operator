@@ -1106,16 +1106,16 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 					return ctrl.Result{}, err
 				}
 				// add them to the list
-				for _, mwbh := range mWebhookList.Items {
+				for index, mwbh := range mWebhookList.Items {
 					managedWebhookList = append(managedWebhookList, mwbh.GetName())
-					if err := r.patchMutatingWebhook(ctx, &mwbh, validatedMembers); err != nil {
+					if err := r.patchMutatingWebhook(ctx, &mWebhookList.Items[index], validatedMembers); err != nil {
 						return ctrl.Result{}, err
 					}
 					patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
 				}
-				for _, vwbh := range vWebhookList.Items {
+				for index, vwbh := range vWebhookList.Items {
 					managedWebhookList = append(managedWebhookList, vwbh.GetName())
-					if err := r.patchValidatingWebhook(ctx, &vwbh, validatedMembers); err != nil {
+					if err := r.patchValidatingWebhook(ctx, &vWebhookList.Items[index], validatedMembers); err != nil {
 						return ctrl.Result{}, err
 					}
 					patchedWebhookList = append(patchedWebhookList, vwbh.GetName())

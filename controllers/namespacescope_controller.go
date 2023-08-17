@@ -1099,7 +1099,7 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 			// check if this csv has patch webhook annotation
 			_, patchWebhook := csv.Annotations[constant.WebhookMark]
 			if patchWebhook {
-				klog.Infof("Patching webhook configuration for CSV %s", csv.Name)
+				klog.Infof("Patching webhookconfiguration for CSV %s", csv.Name)
 				if err := r.patchWebhook(ctx, instance, &csv, managedWebhookList, patchedWebhookList, validatedMembers); err != nil {
 					return ctrl.Result{}, err
 				}
@@ -1211,7 +1211,7 @@ func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *o
 	for _, mwbh := range mWebhookList.Items {
 		webhook := mwbh
 		managedWebhookList = append(managedWebhookList, mwbh.GetName())
-		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers); err != nil {
+		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
 		patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
@@ -1219,7 +1219,7 @@ func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *o
 	for _, vwbh := range vWebhookList.Items {
 		webhook := vwbh
 		managedWebhookList = append(managedWebhookList, vwbh.GetName())
-		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers); err != nil {
+		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
 		patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
@@ -1254,10 +1254,10 @@ func (r *NamespaceScopeReconciler) getWebhooks(ctx context.Context, csvName stri
 	return mWebhookList, vWebhookList, nil
 }
 
-func (r *NamespaceScopeReconciler) patchMutatingWebhook(ctx context.Context, webhookconfig *admissionv1.MutatingWebhookConfiguration, nsList []string) error {
-	klog.Infof("Patching mutatingwebhookconfig scope for: %s", webhookconfig.Name)
+func (r *NamespaceScopeReconciler) patchMutatingWebhook(ctx context.Context, webhookconfig *admissionv1.MutatingWebhookConfiguration, nsList []string, csvName string, csvNS string) error {
+	klog.Infof("Patching mutatingwebhookconfig scope for: %s, control by csv %s/%s", webhookconfig.Name, csvName, csvNS)
 	for i, webhook := range webhookconfig.Webhooks {
-		klog.Infof("Patching webhook scope for: %s", webhook.Name)
+		klog.V(2).Infof("Patching webhook scope for: %s", webhook.Name)
 		skipPatch := false
 		wbhNSSelector := metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1293,10 +1293,11 @@ func (r *NamespaceScopeReconciler) patchMutatingWebhook(ctx context.Context, web
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) patchValidatingWebhook(ctx context.Context, webhookconfig *admissionv1.ValidatingWebhookConfiguration, nsList []string) error {
-	klog.Infof("Patching validatingwebhookconfig scope for: %s", webhookconfig.Name)
+func (r *NamespaceScopeReconciler) patchValidatingWebhook(ctx context.Context, webhookconfig *admissionv1.ValidatingWebhookConfiguration,
+	nsList []string, csvName string, csvNS string) error {
+	klog.Infof("Patching validatingwebhookconfig scope for: %s, control by csv %s/%s", webhookconfig.Name, csvName, csvNS)
 	for i, webhook := range webhookconfig.Webhooks {
-		klog.Infof("Patching webhook scope for: %s", webhook.Name)
+		klog.V(2).Infof("Patching webhook scope for: %s", webhook.Name)
 		skipPatch := false
 		wbhNSSelector := metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{

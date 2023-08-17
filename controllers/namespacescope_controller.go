@@ -1330,6 +1330,42 @@ func (r *NamespaceScopeReconciler) csvtoRequest() handler.MapFunc {
 	}
 }
 
+func (r *NamespaceScopeReconciler) validatingwebhookconfigtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
+		nssList := &operatorv1.NamespaceScopeList{}
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
+		if err != nil {
+			klog.Error(err)
+		}
+		requests := []ctrl.Request{}
+
+		for _, request := range nssList.Items {
+			namespaceName := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+			req := ctrl.Request{NamespacedName: namespaceName}
+			requests = append(requests, req)
+		}
+		return requests
+	}
+}
+
+func (r *NamespaceScopeReconciler) mutatingwebhookconfigtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
+		nssList := &operatorv1.NamespaceScopeList{}
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
+		if err != nil {
+			klog.Error(err)
+		}
+		requests := []ctrl.Request{}
+
+		for _, request := range nssList.Items {
+			namespaceName := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+			req := ctrl.Request{NamespacedName: namespaceName}
+			requests = append(requests, req)
+		}
+		return requests
+	}
+}
+
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := ctrl.NewControllerManagedBy(mgr).
 		Owns(&corev1.ConfigMap{}).
@@ -1350,6 +1386,36 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
 					newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
 					return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
+		Watches(&source.Kind{Type: &admissionv1.ValidatingWebhookConfiguration{}}, handler.EnqueueRequestsFromMapFunc(r.validatingwebhookconfigtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*admissionv1.ValidatingWebhookConfiguration)
+					newObject := e.ObjectNew.(*admissionv1.ValidatingWebhookConfiguration)
+					return !equality.Semantic.DeepDerivative(oldObject.Webhooks, newObject.Webhooks)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
+		Watches(&source.Kind{Type: &admissionv1.MutatingWebhookConfiguration{}}, handler.EnqueueRequestsFromMapFunc(r.mutatingwebhookconfigtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*admissionv1.MutatingWebhookConfiguration)
+					newObject := e.ObjectNew.(*admissionv1.MutatingWebhookConfiguration)
+					return !equality.Semantic.DeepDerivative(oldObject.Webhooks, newObject.Webhooks)
 				},
 				CreateFunc: func(e event.CreateEvent) bool {
 					return true

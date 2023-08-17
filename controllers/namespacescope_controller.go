@@ -1100,25 +1100,8 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 			_, patchWebhook := csv.Annotations[constant.WebhookMark]
 			if patchWebhook {
 				klog.Infof("Patching webhook configuration for CSV %s", csv.Name)
-				// get webhooklists
-				mWebhookList, vWebhookList, err := r.getWebhooks(ctx, csv.Name, instance.Namespace)
-				if err != nil {
+				if err := r.patchWebhook(ctx, instance, &csv, managedWebhookList, patchedWebhookList, validatedMembers); err != nil {
 					return ctrl.Result{}, err
-				}
-				// add them to the list
-				for index, mwbh := range mWebhookList.Items {
-					managedWebhookList = append(managedWebhookList, mwbh.GetName())
-					if err := r.patchMutatingWebhook(ctx, &mWebhookList.Items[index], validatedMembers); err != nil {
-						return ctrl.Result{}, err
-					}
-					patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
-				}
-				for index, vwbh := range vWebhookList.Items {
-					managedWebhookList = append(managedWebhookList, vwbh.GetName())
-					if err := r.patchValidatingWebhook(ctx, &vWebhookList.Items[index], validatedMembers); err != nil {
-						return ctrl.Result{}, err
-					}
-					patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
 				}
 			}
 			csvOriginal := csv.DeepCopy()
@@ -1182,6 +1165,16 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
+	if _, err := r.CheckListDifference(ctx, instance, originalInstance, managedCSVList, managedWebhookList, patchedCSVList, patchedWebhookList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
+}
+
+func (r *NamespaceScopeReconciler) CheckListDifference(ctx context.Context, instance *operatorv1.NamespaceScope, originalInstance *operatorv1.NamespaceScope, managedCSVList []string,
+	managedWebhookList []string, patchedCSVList []string, patchedWebhookList []string) (ctrl.Result, error) {
+
 	if util.CheckListDifference(instance.Status.ManagedCSVList, managedCSVList) {
 		instance.Status.ManagedCSVList = managedCSVList
 	}
@@ -1205,6 +1198,33 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
+}
+
+func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *operatorv1.NamespaceScope, csv *olmv1alpha1.ClusterServiceVersion,
+	managedWebhookList []string, patchedWebhookList []string, validatedMembers []string) error {
+	// get webhooklists
+	mWebhookList, vWebhookList, err := r.getWebhooks(ctx, csv.Name, instance.Namespace)
+	if err != nil {
+		return err
+	}
+	// add them to the list
+	for _, mwbh := range mWebhookList.Items {
+		webhook := mwbh
+		managedWebhookList = append(managedWebhookList, mwbh.GetName())
+		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers); err != nil {
+			return err
+		}
+		patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
+	}
+	for _, vwbh := range vWebhookList.Items {
+		webhook := vwbh
+		managedWebhookList = append(managedWebhookList, vwbh.GetName())
+		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers); err != nil {
+			return err
+		}
+		patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
+	}
+	return nil
 }
 
 func (r *NamespaceScopeReconciler) getWebhooks(ctx context.Context, csvName string, csvNs string) (*admissionv1.MutatingWebhookConfigurationList, *admissionv1.ValidatingWebhookConfigurationList, error) {

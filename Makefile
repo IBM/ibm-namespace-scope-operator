@@ -235,6 +235,12 @@ build-catalog-source:
 	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 	docker push $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 
+run-bundle:
+	$(OPERATOR_SDK) run bundle $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --install-mode OwnNamespace
+
+cleanup-bundle:
+	$(OPERATOR_SDK) cleanup ibm-namespace-scope-operator
+
 ##@ Help
 help: ## Display this help
 	@echo "Usage:\n  make \033[36m<target>\033[0m"

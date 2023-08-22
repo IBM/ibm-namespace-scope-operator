@@ -89,7 +89,15 @@ spec:
                 items:
                   type: string
                 type: array
+              managedWebhookList:
+                items:
+                  type: string
+                type: array
               patchedCSVList:
+                items:
+                  type: string
+                type: array
+              patchedWebhookList:
                 items:
                   type: string
                 type: array
@@ -99,6 +107,7 @@ spec:
                 type: array
             type: object
         type: object
+        x-kubernetes-preserve-unknown-fields: true
     served: true
     storage: true
     subresources:

@@ -57,8 +57,10 @@ type CSVInjector struct {
 type NamespaceScopeStatus struct {
 	ValidatedMembers []string `json:"validatedMembers,omitempty"`
 
-	ManagedCSVList []string `json:"managedCSVList,omitempty"`
-	PatchedCSVList []string `json:"patchedCSVList,omitempty"`
+	ManagedCSVList     []string `json:"managedCSVList,omitempty"`
+	PatchedCSVList     []string `json:"patchedCSVList,omitempty"`
+	ManagedWebhookList []string `json:"managedWebhookList,omitempty"`
+	PatchedWebhookList []string `json:"patchedWebhookList,omitempty"`
 }
 
 // +kubebuilder:object:root=true

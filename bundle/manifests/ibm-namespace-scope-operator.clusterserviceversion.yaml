@@ -54,6 +54,22 @@ spec:
     mediatype: image/png
   install:
     spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - mutatingwebhookconfigurations
+          - validatingwebhookconfigurations
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        serviceAccountName: ibm-namespace-scope-operator
       deployments:
       - label:
           app.kubernetes.io/instance: ibm-namespace-scope-operator

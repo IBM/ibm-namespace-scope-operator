@@ -17,6 +17,7 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -24,7 +25,11 @@ import (
 
 	gset "github.com/deckarep/golang-set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/klog"
 )
 
@@ -127,4 +132,27 @@ func GetOperatorNamespace() (string, error) {
 	}
 	klog.V(1).Infof("Found namespace: %s", ns)
 	return ns, nil
+}
+
+func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, group string, version string, resource string, labelSelector metav1.LabelSelector) (
+	[]unstructured.Unstructured, error) {
+
+	resourceID := schema.GroupVersionResource{
+		Group:    group,
+		Version:  version,
+		Resource: resource,
+	}
+
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	klog.Infof("Label options: %s", labels.Set(labelSelector.MatchLabels).String())
+	// Namespace is empty refer to all namespace
+	list, err := dynamic.Resource(resourceID).Namespace("").List(ctx, listOptions)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return list.Items, nil
 }

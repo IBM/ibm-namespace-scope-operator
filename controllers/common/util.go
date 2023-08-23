@@ -125,6 +125,6 @@ func GetOperatorNamespace() (string, error) {
 	if len(ns) == 0 {
 		return "", fmt.Errorf("operator namespace is empty")
 	}
-	klog.V(1).Info("Found namespace", "Namespace", ns)
+	klog.V(1).Infof("Found namespace: %s", ns)
 	return ns, nil
 }

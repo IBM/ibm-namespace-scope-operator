@@ -75,7 +75,7 @@ spec:
           app.kubernetes.io/instance: ibm-namespace-scope-operator
           app.kubernetes.io/managed-by: ibm-namespace-scope-operator
           app.kubernetes.io/name: ibm-namespace-scope-operator
-          productName: IBM Cloud Platform Common Services
+          productName: IBM_Cloud_Platform_Common_Services
         name: ibm-namespace-scope-operator
         spec:
           replicas: 1
@@ -93,7 +93,7 @@ spec:
                 app.kubernetes.io/instance: ibm-namespace-scope-operator
                 app.kubernetes.io/managed-by: ibm-namespace-scope-operator
                 app.kubernetes.io/name: ibm-namespace-scope-operator
-                productName: IBM Cloud Platform Common Services
+                productName: IBM_Cloud_Platform_Common_Services
                 name: ibm-namespace-scope-operator
             spec:
               affinity:

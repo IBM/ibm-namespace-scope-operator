@@ -657,6 +657,17 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+	// Get the permissions that NamespaceScope Operator has from the toNs
+	nssManagedRole := &rbacv1.Role{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Errorf("role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+			return err
+		}
+		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+		return err
+	}
+
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
 		if err := r.Reader.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
@@ -670,7 +681,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules := rulesFilter(originalRole.Rules)
+		rules := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -938,19 +949,48 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, v := range verbs {
 		verbMap[v] = struct{}{}
 	}
+	needRuleAppending := false
+	for i := 0; i < len(orgRule); {
+		// filter out the wildcard in APIGroups
+		for j := 0; j < len(orgRule[i].APIGroups); {
+			if orgRule[i].APIGroups[j] == "*" {
+				orgRule[i].APIGroups = append(orgRule[i].APIGroups[:j], orgRule[i].APIGroups[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].APIGroups) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
+		// filter out the wildcard in Resources
+		for j := 0; j < len(orgRule[i].Resources); {
+			if orgRule[i].Resources[j] == "*" {
+				orgRule[i].Resources = append(orgRule[i].Resources[:j], orgRule[i].Resources[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].Resources) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
 
-	for i := 0; i < len(orgRule); i++ {
-		j := 0
-		for j < len(orgRule[i].Verbs) {
+		for j := 0; j < len(orgRule[i].Verbs); {
 			if orgRule[i].Verbs[j] == "*" {
 				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
 				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Verbs, which is replaced with all verbs in its copied Role in namespace %s", roleName, fromNs, toNs)
 				continue
 			}
 			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
@@ -959,10 +999,19 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 			}
 			j++
 		}
+
 		if len(orgRule[i].Verbs) == 0 {
 			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
 		}
+		i++
 	}
+
+	if needRuleAppending {
+		orgRule = append(orgRule, nssManagedRule...)
+		klog.Infof("Role %s has been appended with role %s in namespace %s", roleName, constant.NamespaceScopeManagedPrefix+fromNs, toNs)
+	}
+
 	return orgRule
 }
 
@@ -1065,7 +1114,7 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 			_, patchWebhook := csv.Annotations[constant.WebhookMark]
 			if patchWebhook {
 				klog.Infof("Patching webhookconfiguration for CSV %s", csv.Name)
-				if err := r.patchWebhook(ctx, instance, &csv, managedWebhookList, patchedWebhookList, validatedMembers); err != nil {
+				if err := r.patchWebhook(ctx, instance, &csv, &managedWebhookList, &patchedWebhookList, validatedMembers); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
@@ -1166,7 +1215,7 @@ func (r *NamespaceScopeReconciler) CheckListDifference(ctx context.Context, inst
 }
 
 func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *operatorv1.NamespaceScope, csv *olmv1alpha1.ClusterServiceVersion,
-	managedWebhookList []string, patchedWebhookList []string, validatedMembers []string) error {
+	managedWebhookList *[]string, patchedWebhookList *[]string, validatedMembers []string) error {
 	// get webhooklists
 	mWebhookList, vWebhookList, err := r.getWebhooks(ctx, csv.Name, instance.Namespace)
 	if err != nil {
@@ -1175,19 +1224,19 @@ func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *o
 	// add them to the list
 	for _, mwbh := range mWebhookList.Items {
 		webhook := mwbh
-		managedWebhookList = append(managedWebhookList, mwbh.GetName())
+		*managedWebhookList = append(*managedWebhookList, mwbh.GetName())
 		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
-		patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
+		*patchedWebhookList = append(*patchedWebhookList, mwbh.GetName())
 	}
 	for _, vwbh := range vWebhookList.Items {
 		webhook := vwbh
-		managedWebhookList = append(managedWebhookList, vwbh.GetName())
+		*managedWebhookList = append(*managedWebhookList, vwbh.GetName())
 		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
-		patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
+		*patchedWebhookList = append(*patchedWebhookList, vwbh.GetName())
 	}
 	return nil
 }

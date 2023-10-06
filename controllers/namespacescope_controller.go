@@ -938,34 +938,6 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-// Check if operator has namespace admin permission
-func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(ctx context.Context, namespace string) bool {
-	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
-	for _, verb := range verbs {
-		sar := &authorizationv1.SelfSubjectAccessReview{
-			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authorizationv1.ResourceAttributes{
-					Namespace: namespace,
-					Verb:      verb,
-					Group:     "*",
-					Resource:  "*",
-				},
-			},
-		}
-		if err := r.Create(ctx, sar); err != nil {
-			klog.Errorf("Failed to check operator namespace permission: %v", err)
-			return false
-		}
-
-		klog.V(2).Infof("Namespace admin permission in namespace %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
-
-		if !sar.Status.Allowed {
-			return false
-		}
-	}
-	return true
-}
-
 func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
@@ -1006,30 +978,23 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(ctx context.Context, i
 			validatedNs = append(validatedNs, nsMem)
 			continue
 		}
-		// Check if operator has target namespace admin permission
-		if r.checkNamespaceAdminAuth(ctx, nsMem) {
-			// Check if operator has permission to get namespace resource
-			if r.checkGetNSAuth(ctx) {
-				ns := &corev1.Namespace{}
-				key := types.NamespacedName{Name: nsMem}
-				if err := r.Client.Get(ctx, key, ns); err != nil {
-					if errors.IsNotFound(err) {
-						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
-						continue
-					}
-					return nil, err
-				}
-				if ns.Status.Phase == corev1.NamespaceTerminating {
-					klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)
+		// Check if operator has permission to get namespace resource
+		if r.checkGetNSAuth(ctx) {
+			ns := &corev1.Namespace{}
+			key := types.NamespacedName{Name: nsMem}
+			if err := r.Client.Get(ctx, key, ns); err != nil {
+				if errors.IsNotFound(err) {
+					klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 					continue
 				}
+				return nil, err
 			}
-			validatedNs = append(validatedNs, nsMem)
-		} else {
-			klog.Infof("ibm-namespace-scope-operator doesn't have admin permission in namespace %s", nsMem)
-			klog.Infof("NOTE: Please refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem)
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator doesn't have admin permission in namespace %s. NOTE: Refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem, nsMem)
+			if ns.Status.Phase == corev1.NamespaceTerminating {
+				klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)
+				continue
+			}
 		}
+		validatedNs = append(validatedNs, nsMem)
 	}
 	return validatedNs, nil
 }

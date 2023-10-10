@@ -153,9 +153,13 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	reg, _ := regexp.Compile(`^nss-managed-role-from.*`)
+	reg, err := regexp.Compile(`^nss-(managed|runtime)-role-from.*`)
+	if err != nil {
+		klog.Errorf("Failed to compile regular expression: %v", err)
+		return ctrl.Result{}, err
+	}
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
-		if rolesList, _ := r.GetRolesFromNamespace(ctx, namespaceMember); len(rolesList) != 0 {
+		if rolesList, _ := r.GetRolesFromNamespace(ctx, instance, namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
 				if !reg.MatchString(role.Name) {
@@ -282,9 +286,6 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
 			continue
-		}
-		if err := r.generateRBACForNSS(ctx, instance, fromNs, toNs); err != nil {
-			return err
 		}
 		if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
 			return err
@@ -571,7 +572,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, namespace string) ([]rbacv1.Role, error) {
+func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, namespace string) ([]rbacv1.Role, error) {
 	rolesList := &rbacv1.RoleList{}
 
 	opts := []client.ListOption{
@@ -588,7 +589,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, na
 
 	roles := []rbacv1.Role{}
 	for _, role := range rolesList.Items {
-		if _, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok {
+		if value, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok && value == instance.Namespace+"-"+instance.Spec.ConfigmapName {
 			roles = append(roles, role)
 		}
 	}
@@ -659,9 +660,9 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	// Get the permissions that NamespaceScope Operator has from the toNs
 	nssManagedRole := &rbacv1.Role{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
+	if err := r.Reader.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
 		if errors.IsNotFound(err) {
-			klog.Errorf("role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+			klog.Errorf("Role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
 			return err
 		}
 		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)

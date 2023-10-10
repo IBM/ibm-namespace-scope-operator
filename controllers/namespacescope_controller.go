@@ -402,26 +402,6 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(ctx context.Context, instance *
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) generateRBACForNSS(ctx context.Context, instance *operatorv1.NamespaceScope, fromNs, toNs string) error {
-	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
-	}
-	if err := r.createRoleForNSS(ctx, labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-	if err := r.createRoleBindingForNSS(ctx, labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-
-	return nil
-}
-
 func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(ctx context.Context, instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	if err := r.createRuntimeRoleForNSS(ctx, summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -477,69 +457,6 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, 
 
 	klog.Infof("Updated role %s/%s", namespace, name)
 
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) createRoleForNSS(ctx context.Context, labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"},
-				APIGroups: []string{"*"},
-				Resources: []string{"*"},
-			},
-		},
-	}
-	if err := r.Create(ctx, role); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created role %s/%s", namespace, name)
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) createRoleBindingForNSS(ctx context.Context, labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	subjects := []rbacv1.Subject{}
-	subject := rbacv1.Subject{
-		Kind:      "ServiceAccount",
-		Name:      constant.NamespaceScopeServiceAccount,
-		Namespace: fromNs,
-	}
-	subjects = append(subjects, subject)
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Subjects: subjects,
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedPrefix + fromNs,
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-
-	if err := r.Create(ctx, roleBinding); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created rolebinding %s/%s", namespace, name)
 	return nil
 }
 

@@ -153,9 +153,13 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	reg, _ := regexp.Compile(`^nss-managed-role-from.*`)
+	reg, err := regexp.Compile(`^nss-(managed|runtime)-role-from.*`)
+	if err != nil {
+		klog.Errorf("Failed to compile regular expression: %v", err)
+		return ctrl.Result{}, err
+	}
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
-		if rolesList, _ := r.GetRolesFromNamespace(ctx, namespaceMember); len(rolesList) != 0 {
+		if rolesList, _ := r.GetRolesFromNamespace(ctx, instance, namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
 				if !reg.MatchString(role.Name) {
@@ -283,9 +287,6 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 		if toNs == operatorNs {
 			continue
 		}
-		if err := r.generateRBACForNSS(ctx, instance, fromNs, toNs); err != nil {
-			return err
-		}
 		if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
 			return err
 		}
@@ -401,26 +402,6 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(ctx context.Context, instance *
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) generateRBACForNSS(ctx context.Context, instance *operatorv1.NamespaceScope, fromNs, toNs string) error {
-	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
-	}
-	if err := r.createRoleForNSS(ctx, labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-	if err := r.createRoleBindingForNSS(ctx, labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-
-	return nil
-}
-
 func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(ctx context.Context, instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	if err := r.createRuntimeRoleForNSS(ctx, summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -479,69 +460,6 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) createRoleForNSS(ctx context.Context, labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"},
-				APIGroups: []string{"*"},
-				Resources: []string{"*"},
-			},
-		},
-	}
-	if err := r.Create(ctx, role); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created role %s/%s", namespace, name)
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) createRoleBindingForNSS(ctx context.Context, labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	subjects := []rbacv1.Subject{}
-	subject := rbacv1.Subject{
-		Kind:      "ServiceAccount",
-		Name:      constant.NamespaceScopeServiceAccount,
-		Namespace: fromNs,
-	}
-	subjects = append(subjects, subject)
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Subjects: subjects,
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedPrefix + fromNs,
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-
-	if err := r.Create(ctx, roleBinding); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created rolebinding %s/%s", namespace, name)
-	return nil
-}
-
 func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
 	labels := map[string]string{
 		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
@@ -571,7 +489,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, namespace string) ([]rbacv1.Role, error) {
+func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, namespace string) ([]rbacv1.Role, error) {
 	rolesList := &rbacv1.RoleList{}
 
 	opts := []client.ListOption{
@@ -588,7 +506,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, na
 
 	roles := []rbacv1.Role{}
 	for _, role := range rolesList.Items {
-		if _, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok {
+		if value, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok && value == instance.Namespace+"-"+instance.Spec.ConfigmapName {
 			roles = append(roles, role)
 		}
 	}
@@ -657,6 +575,17 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+	// Get the permissions that NamespaceScope Operator has from the toNs
+	nssManagedRole := &rbacv1.Role{}
+	if err := r.Reader.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Errorf("Role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+			return err
+		}
+		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+		return err
+	}
+
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
 		if err := r.Reader.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
@@ -670,7 +599,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules := rulesFilter(originalRole.Rules)
+		rules := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -938,19 +867,48 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, v := range verbs {
 		verbMap[v] = struct{}{}
 	}
+	needRuleAppending := false
+	for i := 0; i < len(orgRule); {
+		// filter out the wildcard in APIGroups
+		for j := 0; j < len(orgRule[i].APIGroups); {
+			if orgRule[i].APIGroups[j] == "*" {
+				orgRule[i].APIGroups = append(orgRule[i].APIGroups[:j], orgRule[i].APIGroups[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].APIGroups) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
+		// filter out the wildcard in Resources
+		for j := 0; j < len(orgRule[i].Resources); {
+			if orgRule[i].Resources[j] == "*" {
+				orgRule[i].Resources = append(orgRule[i].Resources[:j], orgRule[i].Resources[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].Resources) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
 
-	for i := 0; i < len(orgRule); i++ {
-		j := 0
-		for j < len(orgRule[i].Verbs) {
+		for j := 0; j < len(orgRule[i].Verbs); {
 			if orgRule[i].Verbs[j] == "*" {
 				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
 				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Verbs, which is replaced with all verbs in its copied Role in namespace %s", roleName, fromNs, toNs)
 				continue
 			}
 			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
@@ -959,10 +917,19 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 			}
 			j++
 		}
+
 		if len(orgRule[i].Verbs) == 0 {
 			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
 		}
+		i++
 	}
+
+	if needRuleAppending {
+		orgRule = append(orgRule, nssManagedRule...)
+		klog.Infof("Role %s has been appended with role %s in namespace %s", roleName, constant.NamespaceScopeManagedPrefix+fromNs, toNs)
+	}
+
 	return orgRule
 }
 
@@ -1065,7 +1032,7 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 			_, patchWebhook := csv.Annotations[constant.WebhookMark]
 			if patchWebhook {
 				klog.Infof("Patching webhookconfiguration for CSV %s", csv.Name)
-				if err := r.patchWebhook(ctx, instance, &csv, managedWebhookList, patchedWebhookList, validatedMembers); err != nil {
+				if err := r.patchWebhook(ctx, instance, &csv, &managedWebhookList, &patchedWebhookList, validatedMembers); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
@@ -1166,7 +1133,7 @@ func (r *NamespaceScopeReconciler) CheckListDifference(ctx context.Context, inst
 }
 
 func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *operatorv1.NamespaceScope, csv *olmv1alpha1.ClusterServiceVersion,
-	managedWebhookList []string, patchedWebhookList []string, validatedMembers []string) error {
+	managedWebhookList *[]string, patchedWebhookList *[]string, validatedMembers []string) error {
 	// get webhooklists
 	mWebhookList, vWebhookList, err := r.getWebhooks(ctx, csv.Name, instance.Namespace)
 	if err != nil {
@@ -1175,19 +1142,19 @@ func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *o
 	// add them to the list
 	for _, mwbh := range mWebhookList.Items {
 		webhook := mwbh
-		managedWebhookList = append(managedWebhookList, mwbh.GetName())
+		*managedWebhookList = append(*managedWebhookList, mwbh.GetName())
 		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
-		patchedWebhookList = append(patchedWebhookList, mwbh.GetName())
+		*patchedWebhookList = append(*patchedWebhookList, mwbh.GetName())
 	}
 	for _, vwbh := range vWebhookList.Items {
 		webhook := vwbh
-		managedWebhookList = append(managedWebhookList, vwbh.GetName())
+		*managedWebhookList = append(*managedWebhookList, vwbh.GetName())
 		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
 			return err
 		}
-		patchedWebhookList = append(patchedWebhookList, vwbh.GetName())
+		*patchedWebhookList = append(*patchedWebhookList, vwbh.GetName())
 	}
 	return nil
 }

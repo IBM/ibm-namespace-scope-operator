@@ -1,6 +1,6 @@
 module github.com/IBM/ibm-namespace-scope-operator
 
-go 1.20
+go 1.21
 
 require (
 	github.com/IBM/controller-filtered-cache v0.2.1
@@ -15,7 +15,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.6.2
 )
 
-require golang.org/x/term v0.5.0 // indirect
+require golang.org/x/term v0.13.0 // indirect
 
 require (
 	cloud.google.com/go v0.54.0 // indirect
@@ -52,11 +52,11 @@ require (
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.10.0 // indirect
-	golang.org/x/crypto v0.0.0-20220314234659-1baeb1ce4c0b // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/crypto v0.14.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
-	golang.org/x/sys v0.5.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.0.1 // indirect

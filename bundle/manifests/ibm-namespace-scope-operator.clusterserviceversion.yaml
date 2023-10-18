@@ -23,11 +23,11 @@ metadata:
       ]
     capabilities: Seamless Upgrades
     containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
-    createdAt: "2023-02-26T12:14:20Z"
+    createdAt: "2020-11-2T15:38:33Z"
     olm.skipRange: '<4.2.1'
+    operators.openshift.io/infrastructure-features: '["disconnected"]'
     operators.operatorframework.io/builder: operator-sdk-v1.24.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
-    operators.openshift.io/infrastructure-features: '["disconnected"]'
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
   labels:
@@ -75,7 +75,6 @@ spec:
           app.kubernetes.io/instance: ibm-namespace-scope-operator
           app.kubernetes.io/managed-by: ibm-namespace-scope-operator
           app.kubernetes.io/name: ibm-namespace-scope-operator
-          productName: IBM_Cloud_Platform_Common_Services
         name: ibm-namespace-scope-operator
         spec:
           replicas: 1
@@ -93,7 +92,6 @@ spec:
                 app.kubernetes.io/instance: ibm-namespace-scope-operator
                 app.kubernetes.io/managed-by: ibm-namespace-scope-operator
                 app.kubernetes.io/name: ibm-namespace-scope-operator
-                productName: IBM_Cloud_Platform_Common_Services
                 name: ibm-namespace-scope-operator
             spec:
               affinity:
@@ -142,9 +140,10 @@ spec:
       permissions:
       - rules:
         - apiGroups:
-          - '*'
+          - rbac.authorization.k8s.io
           resources:
-          - '*'
+          - rolebindings
+          - roles
           verbs:
           - create
           - delete
@@ -153,7 +152,40 @@ spec:
           - patch
           - update
           - watch
-          - deletecollection
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - pods
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - operators.coreos.com
+          resources:
+          - clusterserviceversions
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - operator.ibm.com
+          resources:
+          - namespacescopes
+          - namespacescopes/status
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
         serviceAccountName: ibm-namespace-scope-operator
     strategy: deployment
   installModes:

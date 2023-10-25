@@ -21,7 +21,7 @@ CONTROLLER_GEN ?= $(shell which controller-gen)
 KUSTOMIZE ?= $(shell which kustomize)
 YQ_VERSION=3.4.0
 KUSTOMIZE_VERSION=v3.8.7
-OPERATOR_SDK_VERSION=v1.20.0
+OPERATOR_SDK_VERSION=v1.32.0
 
 GOPATH=$(HOME)/go/bin/
 

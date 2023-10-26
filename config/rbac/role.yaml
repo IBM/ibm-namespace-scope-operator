@@ -3,11 +3,7 @@ kind: Role
 metadata:
   name: ibm-namespace-scope-operator
 rules:
-  - apiGroups:
-      - "*"
-    resources:
-      - "*"
-    verbs:
+  - verbs:
       - create
       - delete
       - get
@@ -15,7 +11,45 @@ rules:
       - patch
       - update
       - watch
-      - deletecollection
+    apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+      - roles
+  - verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - ''
+    resources:
+      - configmaps
+      - pods
+  - verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - operators.coreos.com
+    resources:
+      - clusterserviceversions
+  - verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - operator.ibm.com
+    resources:
+      - namespacescopes
+      - namespacescopes/status
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

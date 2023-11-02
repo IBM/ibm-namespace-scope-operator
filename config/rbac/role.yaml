@@ -11,6 +11,7 @@ rules:
       - patch
       - update
       - watch
+      - deletecollection
     apiGroups:
       - rbac.authorization.k8s.io
     resources:
@@ -50,6 +51,29 @@ rules:
     resources:
       - namespacescopes
       - namespacescopes/status
+      - namespacescopes/finalizers
+  - verbs:
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - deletecollection
+      - create
+    apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - ''
+    resources:
+      - serviceaccounts
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -57,16 +81,23 @@ metadata:
   name: ibm-namespace-scope-operator
 rules:
 # manage mutation webhook configuration
-- apiGroups:
-  - admissionregistration.k8s.io
-  resources:
-  - mutatingwebhookconfigurations
-  - validatingwebhookconfigurations
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+  - verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - ''
+    resources:
+      - namespaces

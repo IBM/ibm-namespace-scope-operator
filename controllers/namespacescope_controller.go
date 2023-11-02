@@ -949,7 +949,7 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(ctx context.Context, i
 		if r.checkGetNSAuth(ctx) {
 			ns := &corev1.Namespace{}
 			key := types.NamespacedName{Name: nsMem}
-			if err := r.Client.Get(ctx, key, ns); err != nil {
+			if err := r.Reader.Get(ctx, key, ns); err != nil {
 				if errors.IsNotFound(err) {
 					klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 					continue

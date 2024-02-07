@@ -24,13 +24,13 @@ metadata:
     capabilities: Seamless Upgrades
     containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
     createdAt: "2023-10-10T15:48:24Z"
-    olm.skipRange: '<1.17.11'
+    olm.skipRange: '<1.17.12'
     operators.operatorframework.io/builder: operator-sdk-v1.19.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     repository: https://github.com/IBM/ibm-namespace-scope-operator
     support: IBM
-  name: ibm-namespace-scope-operator.v1.17.11
+  name: ibm-namespace-scope-operator.v1.17.12
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -155,6 +155,6 @@ spec:
   provider:
     name: IBM
   relatedImages:
-  - image: icr.io/cpopen/ibm-namespace-scope-operator:1.17.11
+  - image: icr.io/cpopen/ibm-namespace-scope-operator:1.17.12
     name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
-  version: 1.17.11
+  version: 1.17.12

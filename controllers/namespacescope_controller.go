@@ -462,7 +462,10 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, 
 
 func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap":    instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"app.kubernetes.io/instance":   "namespace-scope",
+		"app.kubernetes.io/managed-by": "ibm-namespace-scope-operator",
+		"app.kubernetes.io/name":       instance.Name,
 	}
 	for _, sa := range saNames {
 		roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)

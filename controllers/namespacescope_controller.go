@@ -465,7 +465,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 		"namespace-scope-configmap":    instance.Namespace + "-" + instance.Spec.ConfigmapName,
 		"app.kubernetes.io/instance":   "namespace-scope",
 		"app.kubernetes.io/managed-by": "ibm-namespace-scope-operator",
-		"app.kubernetes.io/name":       instance.Name,
+		"app.kubernetes.io/name":       instance.Spec.ConfigmapName,
 	}
 	for _, sa := range saNames {
 		roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)

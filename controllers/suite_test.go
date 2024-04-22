@@ -29,7 +29,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
 	// +kubebuilder:scaffold:imports
 )
 

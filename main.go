@@ -33,9 +33,9 @@ import (
 
 	cache "github.com/IBM/controller-filtered-cache/filteredcache"
 
-	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
-	"github.com/IBM/ibm-namespace-scope-operator/controllers"
-	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
+	"github.com/IBM/ibm-namespace-scope-operator/v4/controllers"
+	util "github.com/IBM/ibm-namespace-scope-operator/v4/controllers/common"
 	// +kubebuilder:scaffold:imports
 )
 

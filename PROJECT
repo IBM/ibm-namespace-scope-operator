@@ -7,7 +7,7 @@ resources:
     domain: ibm.com
     group: operator
     kind: NamespaceScope
-    path: github.com/IBM/ibm-namespace-scope-operator/api/v1
+    path: github.com/IBM/ibm-namespace-scope-operator/v4/api/v1
     version: v1
 version: "3"
 plugins:

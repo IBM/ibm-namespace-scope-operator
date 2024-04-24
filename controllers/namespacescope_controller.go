@@ -52,9 +52,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
-	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
-	"github.com/IBM/ibm-namespace-scope-operator/controllers/constant"
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
+	util "github.com/IBM/ibm-namespace-scope-operator/v4/controllers/common"
+	"github.com/IBM/ibm-namespace-scope-operator/v4/controllers/constant"
 )
 
 //var ctx context.Context

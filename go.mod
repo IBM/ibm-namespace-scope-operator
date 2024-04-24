@@ -1,4 +1,4 @@
-module github.com/IBM/ibm-namespace-scope-operator
+module github.com/IBM/ibm-namespace-scope-operator/v4
 
 go 1.21
 

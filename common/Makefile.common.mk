@@ -37,9 +37,6 @@ endif
 config-docker: get-cluster-credentials
 	@common/scripts/artifactory_config_docker.sh
 
-config-docker-quay: get-cluster-credentials
-	@common/scripts/quay_config_docker.sh
-
 FINDFILES=find . \( -path ./.git -o -path ./.github \) -prune -o -type f
 XARGS = xargs -0 ${XARGS_FLAGS}
 CLEANXARGS = xargs ${XARGS_FLAGS}

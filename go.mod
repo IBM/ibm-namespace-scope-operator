@@ -3,7 +3,7 @@ module github.com/IBM/ibm-namespace-scope-operator
 go 1.21
 
 require (
-	github.com/IBM/controller-filtered-cache v0.2.1
+	github.com/IBM/controller-filtered-cache v0.3.5
 	github.com/deckarep/golang-set v1.7.1
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.20.1

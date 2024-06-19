@@ -9,7 +9,7 @@ require (
 	github.com/onsi/gomega v1.20.1
 	github.com/operator-framework/api v0.3.20
 	k8s.io/api v0.25.0
-	k8s.io/apimachinery v0.25.16
+	k8s.io/apimachinery v0.25.15
 	k8s.io/client-go v0.25.0
 	k8s.io/klog v1.0.0
 	sigs.k8s.io/controller-runtime v0.12.3

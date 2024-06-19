@@ -63,8 +63,7 @@ type NamespaceScopeReconciler struct {
 	Scheme   *runtime.Scheme
 }
 
-func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx = context.Background()
+func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	// Fetch the NamespaceScope instance
 	instance := &operatorv1.NamespaceScope{}
@@ -1010,8 +1009,7 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 	return validatedNs, nil
 }
 
-func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx = context.Background()
+func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	// Fetch the NamespaceScope instance
 	instance := &operatorv1.NamespaceScope{}
@@ -1145,10 +1143,10 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 }
 
-func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {
-	return func(object handler.MapObject) []ctrl.Request {
+func (r *NamespaceScopeReconciler) csvtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
 		nssList := &operatorv1.NamespaceScopeList{}
-		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.Meta.GetNamespace()})
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
 		if err != nil {
 			klog.Error(err)
 		}
@@ -1173,9 +1171,7 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	err = ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, &handler.EnqueueRequestsFromMapFunc{
-			ToRequests: r.csvtoRequest(),
-		}, builder.WithPredicates(predicate.Funcs{
+		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest()), builder.WithPredicates(predicate.Funcs{
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
 				return !e.DeleteStateUnknown

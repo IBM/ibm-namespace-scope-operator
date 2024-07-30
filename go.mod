@@ -76,3 +76,4 @@ require (
 
 // fix vulnerability: CVE-2021-3121 in github.com/gogo/protobuf < v1.3.2
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+

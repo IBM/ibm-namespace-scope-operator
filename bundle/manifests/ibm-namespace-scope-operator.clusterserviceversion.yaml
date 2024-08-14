@@ -24,7 +24,7 @@ metadata:
     capabilities: Seamless Upgrades
     containerImage: icr.io/cpopen/ibm-namespace-scope-operator:latest
     createdAt: "2024-05-23T08:24:14Z"
-    olm.skipRange: '<4.2.7'
+    olm.skipRange: '<4.2.8'
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     operators.operatorframework.io/builder: operator-sdk-v1.32.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
@@ -35,7 +35,7 @@ metadata:
     operatorframework.io/arch.ppc64le: supported
     operatorframework.io/arch.s390x: supported
     operatorframework.io/os.linux: supported
-  name: ibm-namespace-scope-operator.v4.2.7
+  name: ibm-namespace-scope-operator.v4.2.8
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -246,6 +246,6 @@ spec:
   provider:
     name: IBM
   relatedImages:
-  - image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.7
+  - image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.8
     name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE
-  version: 4.2.7
+  version: 4.2.8

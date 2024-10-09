@@ -156,3 +156,12 @@ func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, gro
 
 	return list.Items, nil
 }
+
+func GetFirstNCharacter(str string, n int) string {
+	v := []rune(str)
+	if n >= len(v) {
+		return str
+	}
+	return string(v[:n])
+
+}

@@ -1015,9 +1015,11 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 	for _, packageName := range candidateSet.ToSlice() {
 		managedCSVList = append(managedCSVList, packageName.(string))
 		csvList := &olmv1alpha1.ClusterServiceVersionList{}
+		labelKey := packageName.(string) + "." + instance.Namespace
+		labelKey = util.GetFirstNCharacter(labelKey, 63)
 		if err := r.Client.List(ctx, csvList, &client.ListOptions{
 			LabelSelector: labels.SelectorFromSet(map[string]string{
-				"operators.coreos.com/" + packageName.(string) + "." + instance.Namespace: "",
+				"operators.coreos.com/" + labelKey: "",
 			})}); err != nil {
 			klog.Error(err)
 			return ctrl.Result{}, err

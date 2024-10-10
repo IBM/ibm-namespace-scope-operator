@@ -161,6 +161,5 @@ func GetFirstNCharacter(str string, n int) string {
 	if n >= len(str) {
 		return str
 	}
-	return string(str[:n])
-
+	return str[:n]
 }

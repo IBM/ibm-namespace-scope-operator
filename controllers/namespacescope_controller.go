@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -283,13 +284,30 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 		return err
 	}
 
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, len(instance.Status.ValidatedMembers))
+
 	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
 			continue
 		}
-		if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
-			return err
-		}
+
+		wg.Add(1)
+		go func(toNs string) {
+			defer wg.Done()
+			if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
+				errorChannel <- err
+			}
+		}(toNs)
+	}
+
+	// Wait for all RBAC generation to finish
+	wg.Wait()
+	close(errorChannel)
+
+	// Return the first error encountered, if any
+	if len(errorChannel) > 0 {
+		return <-errorChannel
 	}
 	return nil
 }

@@ -329,8 +329,9 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(ctx context.
 		return err
 	}
 	unmanagedNss := util.GetListDifference(nsInCm, nsInCr)
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap": configmapValue,
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -364,8 +365,9 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(ctx context.
 
 // When delete NamespaceScope instance, cleanup all RBAC resources
 func (r *NamespaceScopeReconciler) DeleteAllRbac(ctx context.Context, instance *operatorv1.NamespaceScope) error {
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap": configmapValue,
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -461,8 +463,9 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, 
 }
 
 func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap":    instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap":    configmapValue,
 		"app.kubernetes.io/instance":   "namespace-scope",
 		"app.kubernetes.io/managed-by": "ibm-namespace-scope-operator",
 		"app.kubernetes.io/name":       instance.Spec.ConfigmapName,

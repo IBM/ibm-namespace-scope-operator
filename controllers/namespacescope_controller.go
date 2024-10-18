@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -283,14 +284,32 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 		return err
 	}
 
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, len(instance.Status.ValidatedMembers))
+
 	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
 			continue
 		}
-		if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
-			return err
-		}
+
+		wg.Add(1)
+		go func(toNs string) {
+			defer wg.Done()
+			if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
+				errorChannel <- err
+			}
+		}(toNs)
 	}
+
+	// Wait for all RBAC generation to finish
+	wg.Wait()
+	close(errorChannel)
+
+	// Return the first error encountered, if any
+	if len(errorChannel) > 0 {
+		return <-errorChannel
+	}
+
 	return nil
 }
 
@@ -470,28 +489,46 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 		"app.kubernetes.io/managed-by": "ibm-namespace-scope-operator",
 		"app.kubernetes.io/name":       instance.Spec.ConfigmapName,
 	}
+
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, len(saNames))
+
 	for _, sa := range saNames {
-		roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)
+		wg.Add(1)
 
-		klog.V(2).Infof("Roles waiting to be copied: %v", roleList)
+		go func(sa string) {
+			defer wg.Done()
 
-		if err != nil {
-			return err
-		}
-
-		if err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+			roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)
+			if err != nil {
+				errorChannel <- err
 			}
-			return err
-		}
-		if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+
+			klog.V(2).Infof("Roles waiting to be copied for SA %s: %v", sa, roleList)
+
+			if err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
+				if errors.IsForbidden(err) {
+					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+				}
+				errorChannel <- err
 			}
-			return err
-		}
+
+			if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
+				if errors.IsForbidden(err) {
+					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+				}
+				errorChannel <- err
+			}
+		}(sa)
 	}
+
+	wg.Wait()
+	close(errorChannel)
+
+	if len(errorChannel) > 0 {
+		return <-errorChannel
+	}
+
 	return nil
 }
 

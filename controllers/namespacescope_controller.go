@@ -502,6 +502,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 			roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)
 			if err != nil {
 				errorChannel <- err
+				return
 			}
 
 			klog.V(2).Infof("Roles waiting to be copied for SA %s: %v", sa, roleList)
@@ -511,6 +512,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				}
 				errorChannel <- err
+				return
 			}
 
 			if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
@@ -518,6 +520,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				}
 				errorChannel <- err
+				return
 			}
 		}(sa)
 	}

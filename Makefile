@@ -76,7 +76,7 @@ OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 # Current Operator bundle image name
 BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
 # Current Operator version
-OPERATOR_VERSION ?= 4.2.10
+OPERATOR_VERSION ?= 4.2.11
 
 # Options for 'bundle-build'
 CHANNELS ?= v4.0

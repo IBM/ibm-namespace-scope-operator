@@ -552,7 +552,8 @@ func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, in
 
 	roles := []rbacv1.Role{}
 	for _, role := range rolesList.Items {
-		if value, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok && value == instance.Namespace+"-"+instance.Spec.ConfigmapName {
+		configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
+		if value, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok && value == configmapValue {
 			roles = append(roles, role)
 		}
 	}

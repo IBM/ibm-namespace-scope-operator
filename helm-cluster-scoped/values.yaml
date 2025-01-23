@@ -1,0 +1,5 @@
+imagePullPrefix: icr.io
+imagePullSecret: ibm-entilement-key
+operatorNamespace: namespace-placeholder
+servicesNamespace: namespace-placeholder
+image: image-placeholder

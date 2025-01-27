@@ -2,4 +2,6 @@ imagePullPrefix: icr.io
 imagePullSecret: ibm-entitlement-key
 operatorNamespace: namespace-placeholder
 servicesNamespace: namespace-placeholder
-image: image-placeholder
+imageRegistryNamespaceOperator: cpopen
+imageRegistryNamespaceOperand: cpopen/cpfs
+imageDigest: 3c214834aed7391c1b46c4c8034e3331146395f57795436ab9cdea498b605ff7

@@ -49,7 +49,7 @@ spec:
           ]
         capabilities: Seamless Upgrades
         productName: IBM Cloud Platform Common Services
-        containerImage: 'icr.io/cpopen/ibm-namespace-scope-operator@sha256:3c214834aed7391c1b46c4c8034e3331146395f57795436ab9cdea498b605ff7'
+        containerImage: '{{ .Values.imagePrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator@sha256:{{ .Values.imageDigest }}'
         productMetric: FREE
     spec:
       restartPolicy: Always
@@ -102,7 +102,7 @@ spec:
           imagePullPolicy: IfNotPresent
           imagePullSecret: {{ .Values.imagePullSecret }}
           terminationMessagePolicy: File
-          image: '{{ .Values.imagePrefix }}/cpopen/ibm-namespace-scope-operator@sha256:3c214834aed7391c1b46c4c8034e3331146395f57795436ab9cdea498b605ff7'
+          image: '{{ .Values.imagePrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator@sha256:{{ .Values.imageDigest }}'
       serviceAccount: ibm-namespace-scope-operator
       dnsPolicy: ClusterFirst
   strategy:

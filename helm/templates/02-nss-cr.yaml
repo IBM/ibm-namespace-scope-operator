@@ -1,0 +1,19 @@
+apiVersion: operator.ibm.com/v1
+kind: NamespaceScope
+metadata:
+  labels:
+    foundationservices.cloudpak.ibm.com: nss
+  name: common-service
+spec:
+  csvInjector:
+    enable: true
+  license:
+    accept: true
+  namespaceMembers:
+  - {{ .Values.operatorNamespace }}
+  - {{ .Values.servicesNamespace }}
+    {{- range .Values.tenantNamespaces }}
+      - {{ . }}
+    {{- end }}
+  restartLabels:
+    intent: projected

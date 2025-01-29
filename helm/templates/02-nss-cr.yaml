@@ -9,11 +9,9 @@ spec:
     enable: true
   license:
     accept: true
-  namespaceMembers: {{ .Values.tenantNamespaces | toYaml | indent 4 }}
-  - {{ .Values.operatorNamespace }}
-  - {{ .Values.servicesNamespace }}
-    # {{- range .Values.tenantNamespaces }}
-    #   - {{ . | quote }}
-    # {{- end }}
+  namespaceMembers:
+    {{- range $i, $v := $.Values.tenantNamespaces }}
+    - {{ $v }}
+    {{- end }}
   restartLabels:
     intent: projected

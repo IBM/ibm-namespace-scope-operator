@@ -68,7 +68,8 @@ spec:
                       - s390x
       terminationGracePeriodSeconds: 10
       securityContext: {}
-      imagePullSecret: {{ .Values.imagePullSecret }}
+      imagePullSecrets:
+      - name: {{ .Values.imagePullSecret }}
       containers:
         - resources:
             limits:

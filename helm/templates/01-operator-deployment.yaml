@@ -68,6 +68,7 @@ spec:
                       - s390x
       terminationGracePeriodSeconds: 10
       securityContext: {}
+      imagePullSecret: {{ .Values.imagePullSecret }}
       containers:
         - resources:
             limits:
@@ -100,7 +101,6 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           imagePullPolicy: IfNotPresent
-          imagePullSecret: {{ .Values.imagePullSecret }}
           terminationMessagePolicy: File
           image: '{{ .Values.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator@sha256:{{ .Values.imageDigest }}'
       serviceAccount: ibm-namespace-scope-operator

@@ -13,7 +13,7 @@ spec:
   - {{ .Values.operatorNamespace }}
   - {{ .Values.servicesNamespace }}
     {{- range .Values.tenantNamespaces }}
-      - {{ . }}
+      - {{ . | quote }}
     {{- end }}
   restartLabels:
     intent: projected

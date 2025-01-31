@@ -1,8 +1,4 @@
 imagePullPrefix: icr.io
 imagePullSecret: ibm-entitlement-key
-operatorNamespace: ""
-servicesNamespace: ""
-tenantNamespaces: []
 imageRegistryNamespaceOperator: cpopen
 imageRegistryNamespaceOperand: cpopen/cpfs
-imageTag: "latest"

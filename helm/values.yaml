@@ -1,7 +1,5 @@
 imagePullPrefix: icr.io
 imagePullSecret: ibm-entitlement-key
-operatorNamespace: ""
-servicesNamespace: ""
 #include all namespaces in the tenant in this list object including the operator and services namespace
 tenantNamespaces: 
   - <operator namespace>

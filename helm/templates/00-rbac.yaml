@@ -1,0 +1,97 @@
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: ibm-namespace-scope-operator
+rules:
+  - verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - deletecollection
+    apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+      - roles
+  - verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - ''
+    resources:
+      - configmaps
+      - pods
+  - verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - operators.coreos.com
+    resources:
+      - clusterserviceversions
+  - verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+    apiGroups:
+      - operator.ibm.com
+    resources:
+      - namespacescopes
+      - namespacescopes/status
+      - namespacescopes/finalizers
+  - verbs:
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - deletecollection
+      - create
+    apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - ''
+    resources:
+      - serviceaccounts
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: ibm-namespace-scope-operator
+subjects:
+  - kind: ServiceAccount
+    name: ibm-namespace-scope-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ibm-namespace-scope-operator
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  labels:
+    app.kubernetes.io/instance: ibm-namespace-scope-operator
+    app.kubernetes.io/managed-by: ibm-namespace-scope-operator
+    app.kubernetes.io/name: ibm-namespace-scope-operator
+  name: ibm-namespace-scope-operator

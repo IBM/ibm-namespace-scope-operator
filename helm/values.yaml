@@ -1,0 +1,12 @@
+imagePullPrefix: icr.io
+imagePullSecret: ibm-entitlement-key
+#include all namespaces in the tenant in this list object including the operator and services namespace
+tenantNamespaces: 
+  - <operator namespace>
+  - <services namespace>
+  - <tenant namespace 1>
+  - <tenant namespace 2>
+  #etc
+imageRegistryNamespaceOperator: cpopen
+imageRegistryNamespaceOperand: cpopen/cpfs
+imageTag: "latest"

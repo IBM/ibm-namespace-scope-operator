@@ -103,7 +103,7 @@ spec:
               type: RuntimeDefault
           imagePullPolicy: IfNotPresent
           terminationMessagePolicy: File
-          image: '{{ .Values.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:{{ .Values.imageTag }}'
+          image: '{{ .Values.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/{{ .Values.operatorImage }}:{{ .Chart.AppVersion }}'
       serviceAccount: ibm-namespace-scope-operator
       dnsPolicy: ClusterFirst
   strategy:

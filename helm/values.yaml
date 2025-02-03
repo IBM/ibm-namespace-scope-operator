@@ -10,3 +10,4 @@ tenantNamespaces:
 imageRegistryNamespaceOperator: cpopen
 imageRegistryNamespaceOperand: cpopen/cpfs
 imageTag: "latest"
+operatorImage: ibm-namespace-scope-operator

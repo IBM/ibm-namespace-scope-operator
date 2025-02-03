@@ -9,5 +9,6 @@ tenantNamespaces:
   #etc
 imageRegistryNamespaceOperator: cpopen
 imageRegistryNamespaceOperand: cpopen/cpfs
+operatorVersion: 4.2.12
 imageTag: "latest"
 operatorImage: ibm-namespace-scope-operator

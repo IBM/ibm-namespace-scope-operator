@@ -31,7 +31,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ .Values.operatorNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

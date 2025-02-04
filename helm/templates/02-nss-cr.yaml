@@ -4,12 +4,15 @@ metadata:
   labels:
     foundationservices.cloudpak.ibm.com: nss
   name: common-service
+  namespace: {{ .Values.operatorNamespace }}
 spec:
   csvInjector:
     enable: true
   license:
     accept: true
   namespaceMembers:
+    - {{ .Values.operatorNamespace }}
+    - {{ .Values.servicesNamespace }}
     {{- range $i, $v := $.Values.tenantNamespaces }}
     - {{ $v }}
     {{- end }}

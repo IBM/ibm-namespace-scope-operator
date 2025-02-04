@@ -2,7 +2,7 @@ kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.operatorNamespace }}
+  namespace: {{ .Values.global.operatorNamespace }}
   labels:
     app.kubernetes.io/instance: ibm-namespace-scope-operator
     app.kubernetes.io/managed-by: ibm-namespace-scope-operator
@@ -50,7 +50,7 @@ spec:
           ]
         capabilities: Seamless Upgrades
         productName: IBM Cloud Platform Common Services
-        containerImage: '{{ .Values.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:4.2.12'
+        containerImage: '{{ .Values.global.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:4.2.12'
         productMetric: FREE
     spec:
       restartPolicy: Always
@@ -70,7 +70,7 @@ spec:
       terminationGracePeriodSeconds: 10
       securityContext: {}
       imagePullSecrets:
-      - name: {{ .Values.imagePullSecret }}
+      - name: {{ .Values.global.imagePullSecret }}
       containers:
         - resources:
             limits:
@@ -104,7 +104,7 @@ spec:
               type: RuntimeDefault
           imagePullPolicy: IfNotPresent
           terminationMessagePolicy: File
-          image: '{{ .Values.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:4.2.12'
+          image: '{{ .Values.global.imagePullPrefix }}/{{ .Values.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:4.2.12'
       serviceAccount: ibm-namespace-scope-operator
       dnsPolicy: ClusterFirst
   strategy:

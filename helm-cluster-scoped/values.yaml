@@ -1,6 +1,6 @@
-imagePullPrefix: icr.io
-imagePullSecret: ibm-entitlement-key
+# imagePullPrefix: icr.io
+# imagePullSecret: ibm-entitlement-key
 imageRegistryNamespaceOperator: cpopen
 imageRegistryNamespaceOperand: cpopen/cpfs
 
-operatorNamespace: "helm-operators"
+# operatorNamespace: ""

@@ -2,7 +2,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.operatorNamespace }}
+  namespace: {{ .Values.global.operatorNamespace }}
 rules:
   - verbs:
       - create
@@ -80,11 +80,11 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.operatorNamespace }}
+  namespace: {{ .Values.global.operatorNamespace }}
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
-    namespace: {{ .Values.operatorNamespace }}
+    namespace: {{ .Values.global.operatorNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -98,4 +98,4 @@ metadata:
     app.kubernetes.io/managed-by: ibm-namespace-scope-operator
     app.kubernetes.io/name: ibm-namespace-scope-operator
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.operatorNamespace }}
+  namespace: {{ .Values.global.operatorNamespace }}

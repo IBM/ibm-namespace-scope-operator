@@ -13,7 +13,7 @@ spec:
   namespaceMembers:
     - {{ .Values.global.operatorNamespace }}
     - {{ .Values.global.instanceNamespace }}
-    {{- range $i, $v := $.Values.tenantNamespaces }}
+    {{- range $v := $.Values.global.tetheredNamespace }}
     - {{ $v }}
     {{- end }}
   restartLabels:

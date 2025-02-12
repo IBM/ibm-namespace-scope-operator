@@ -5,6 +5,6 @@ global:
   imagePullSecret: ibm-entitlement-key
   licenseAccept: true
   tetheredNamespace: []
-
-imageRegistryNamespaceOperator: cpopen
-imageRegistryNamespaceOperand: cpopen/cpfs
+cpfs:
+  imageRegistryNamespaceOperator: cpopen
+  imageRegistryNamespaceOperand: cpopen/cpfs

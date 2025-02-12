@@ -3,6 +3,7 @@ kind: NamespaceScope
 metadata:
   labels:
     foundationservices.cloudpak.ibm.com: nss
+    component-id: {{ .Chart.Name }}
   name: common-service
   namespace: {{ .Values.global.operatorNamespace }}
 spec:

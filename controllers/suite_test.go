@@ -26,11 +26,10 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -44,9 +43,8 @@ var testEnv *envtest.Environment
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t,
+		"NamespaceScope Controller Suite")
 }
 
 var _ = BeforeSuite(func(done Done) {

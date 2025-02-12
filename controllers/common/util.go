@@ -17,15 +17,19 @@
 package common
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sort"
 	"strings"
 
 	gset "github.com/deckarep/golang-set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/klog"
 )
 
@@ -69,7 +73,7 @@ func CheckListDifference(slice1 []string, slice2 []string) bool {
 	return false
 }
 
-//StringSliceContentEqual checks if the contant from two string slice are the same
+// StringSliceContentEqual checks if the contant from two string slice are the same
 func StringSliceContentEqual(slice1, slice2 []string) bool {
 	set1 := MakeSet(slice1)
 	set2 := MakeSet(slice2)
@@ -114,7 +118,7 @@ func Reverse(original []string) []string {
 func GetOperatorNamespace() (string, error) {
 	ns, found := os.LookupEnv("OPERATOR_NAMESPACE")
 	if !found {
-		nsBytes, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+		nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("namespace not found for current environment")
@@ -126,6 +130,36 @@ func GetOperatorNamespace() (string, error) {
 	if len(ns) == 0 {
 		return "", fmt.Errorf("operator namespace is empty")
 	}
-	klog.V(1).Info("Found namespace", "Namespace", ns)
+	klog.V(1).Infof("Found namespace: %s", ns)
 	return ns, nil
+}
+
+func GetResourcesDynamically(ctx context.Context, dynamic dynamic.Interface, group string, version string, resource string, labelSelector metav1.LabelSelector) (
+	[]unstructured.Unstructured, error) {
+
+	resourceID := schema.GroupVersionResource{
+		Group:    group,
+		Version:  version,
+		Resource: resource,
+	}
+
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	klog.Infof("Label options: %s", labels.Set(labelSelector.MatchLabels).String())
+	// Namespace is empty refer to all namespace
+	list, err := dynamic.Resource(resourceID).Namespace("").List(ctx, listOptions)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return list.Items, nil
+}
+
+func GetFirstNCharacter(str string, n int) string {
+	if n >= len(str) {
+		return str
+	}
+	return str[:n]
 }

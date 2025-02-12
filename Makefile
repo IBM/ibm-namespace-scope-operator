@@ -21,7 +21,7 @@ CONTROLLER_GEN ?= $(shell which controller-gen)
 KUSTOMIZE ?= $(shell which kustomize)
 YQ_VERSION=3.4.0
 KUSTOMIZE_VERSION=v3.8.7
-OPERATOR_SDK_VERSION=v1.20.0
+OPERATOR_SDK_VERSION=v1.32.0
 
 GOPATH=$(HOME)/go/bin/
 
@@ -76,7 +76,7 @@ OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 # Current Operator bundle image name
 BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
 # Current Operator version
-OPERATOR_VERSION ?= 4.0.0
+OPERATOR_VERSION ?= 4.2.13
 
 # Options for 'bundle-build'
 CHANNELS ?= v4.0
@@ -94,7 +94,6 @@ CRD_OPTIONS ?= "crd:trivialVersions=true"
 
 ifeq ($(BUILD_LOCALLY),0)
     export CONFIG_DOCKER_TARGET = config-docker
-    export CONFIG_DOCKER_TARGET_QUAY = config-docker-quay
 endif
 
 include common/Makefile.common.mk
@@ -234,6 +233,12 @@ build-bundle-image:
 build-catalog-source:
 	opm -u docker index add --bundles $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --tag $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
 	docker push $(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME)-catalog:$(VERSION)
+
+run-bundle:
+	$(OPERATOR_SDK) run bundle $(QUAY_REGISTRY)/$(BUNDLE_IMAGE_NAME):$(VERSION) --install-mode OwnNamespace
+
+cleanup-bundle:
+	$(OPERATOR_SDK) cleanup ibm-namespace-scope-operator
 
 ##@ Help
 help: ## Display this help

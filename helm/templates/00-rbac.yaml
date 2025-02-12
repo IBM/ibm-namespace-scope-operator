@@ -1,7 +1,8 @@
-apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
+  namespace: {{ .Values.global.operatorNamespace }}
 rules:
   - verbs:
       - create
@@ -75,29 +76,26 @@ rules:
     resources:
       - serviceaccounts
 ---
+kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
 metadata:
   name: ibm-namespace-scope-operator
-rules:
-# manage mutation webhook configuration
-  - verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-    apiGroups:
-      - admissionregistration.k8s.io
-    resources:
-      - mutatingwebhookconfigurations
-      - validatingwebhookconfigurations
-  - verbs:
-      - get
-      - list
-    apiGroups:
-      - ''
-    resources:
-      - namespaces
+  namespace: {{ .Values.global.operatorNamespace }}
+subjects:
+  - kind: ServiceAccount
+    name: ibm-namespace-scope-operator
+    namespace: {{ .Values.global.operatorNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ibm-namespace-scope-operator
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  labels:
+    app.kubernetes.io/instance: ibm-namespace-scope-operator
+    app.kubernetes.io/managed-by: ibm-namespace-scope-operator
+    app.kubernetes.io/name: ibm-namespace-scope-operator
+  name: ibm-namespace-scope-operator
+  namespace: {{ .Values.global.operatorNamespace }}

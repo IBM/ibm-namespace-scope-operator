@@ -1,0 +1,10 @@
+global:
+  operatorNamespace: operators
+  instanceNamespace: instances
+  imagePullPrefix: icr.io
+  imagePullSecret: ibm-entitlement-key
+  licenseAccept: true
+  tetheredNamespace: []
+
+imageRegistryNamespaceOperator: cpopen
+imageRegistryNamespaceOperand: cpopen/cpfs

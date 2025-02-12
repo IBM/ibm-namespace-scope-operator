@@ -46,6 +46,22 @@ spec:
                 required:
                 - enable
                 type: object
+              license:
+                description: LicenseAcceptance defines the license specification in CSV
+                properties:
+                  accept:
+                    description: 'Accepting the license - URL: https://ibm.biz/integration-licenses'
+                    type: boolean
+                  key:
+                    description: The license key for this deployment.
+                    type: string
+                  license:
+                    description: The license being accepted where the component has multiple.
+                    type: string
+                  use:
+                    description: The type of license being accepted.
+                    type: string
+                type: object
               manualManagement:
                 description: Set the following to true to manually manage permissions for the NamespaceScope operator to extend control over other namespaces The operator may fail when trying to extend permissions to other namespaces, but the cluster administrator can correct this using the authorize-namespace command.
                 type: boolean
@@ -73,7 +89,15 @@ spec:
                 items:
                   type: string
                 type: array
+              managedWebhookList:
+                items:
+                  type: string
+                type: array
               patchedCSVList:
+                items:
+                  type: string
+                type: array
+              patchedWebhookList:
                 items:
                   type: string
                 type: array
@@ -83,6 +107,7 @@ spec:
                 type: array
             type: object
         type: object
+        x-kubernetes-preserve-unknown-fields: true
     served: true
     storage: true
     subresources:

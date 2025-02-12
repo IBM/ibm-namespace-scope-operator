@@ -20,11 +20,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	olmv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	ownerutil "github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,12 +53,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/api/v1"
-	util "github.com/IBM/ibm-namespace-scope-operator/controllers/common"
-	"github.com/IBM/ibm-namespace-scope-operator/controllers/constant"
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
+	util "github.com/IBM/ibm-namespace-scope-operator/v4/controllers/common"
+	"github.com/IBM/ibm-namespace-scope-operator/v4/controllers/constant"
 )
 
-var ctx context.Context
+//var ctx context.Context
 
 // NamespaceScopeReconciler reconciles a NamespaceScope object
 type NamespaceScopeReconciler struct {
@@ -60,11 +66,10 @@ type NamespaceScopeReconciler struct {
 	client.Client
 	Recorder record.EventRecorder
 	Scheme   *runtime.Scheme
+	Config   *rest.Config
 }
 
-func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx = context.Background()
-
+func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Fetch the NamespaceScope instance
 	instance := &operatorv1.NamespaceScope{}
 
@@ -78,11 +83,11 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		if util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
 			instance = r.setDefaults(instance)
 
-			if err := r.UpdateConfigMap(instance); err != nil {
+			if err := r.UpdateConfigMap(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 
-			if err := r.DeleteAllRbac(instance); err != nil {
+			if err := r.DeleteAllRbac(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -97,9 +102,30 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 		return ctrl.Result{}, nil
 	}
 
+	nssObjectList := &operatorv1.NamespaceScopeList{}
+	if err := r.Client.List(ctx, nssObjectList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	licenseAccepted := false
+
+	for _, nss := range nssObjectList.Items {
+		if nss.GetDeletionTimestamp() != nil {
+			continue
+		}
+		if nss.Spec.License.Accept {
+			licenseAccepted = true
+			break
+		}
+	}
+
+	if !licenseAccepted {
+		klog.Infof("Accept license by changing .spec.license.accept to true in the NamespaceScope: %s", req.NamespacedName)
+	}
+
 	// Add finalizer for this instance
 	if !util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
-		if err := r.addFinalizer(instance); err != nil {
+		if err := r.addFinalizer(ctx, instance); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -108,38 +134,42 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 
 	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
 
-	if err := r.UpdateStatus(instance); err != nil {
+	if err := r.UpdateStatus(ctx, instance); err != nil {
 		klog.Errorf("Failed to update the status of NamespaceScope %s: %v", req.NamespacedName, err)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.PushRbacToNamespace(instance); err != nil {
+	if err := r.PushRbacToNamespace(ctx, instance); err != nil {
 		klog.Errorf("Failed to generate rbac: %v", err)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.DeleteRbacFromUnmanagedNamespace(instance); err != nil {
+	if err := r.DeleteRbacFromUnmanagedNamespace(ctx, instance); err != nil {
 		klog.Errorf("Failed to delete rbac: %v", err)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.UpdateConfigMap(instance); err != nil {
+	if err := r.UpdateConfigMap(ctx, instance); err != nil {
 		klog.Errorf("Failed to update configmap: %v", err)
 		return ctrl.Result{}, err
 	}
 
+	reg, err := regexp.Compile(`^nss-(managed|runtime)-role-from.*`)
+	if err != nil {
+		klog.Errorf("Failed to compile regular expression: %v", err)
+		return ctrl.Result{}, err
+	}
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
-		if rolesList, _ := r.GetRolesFromNamespace(namespaceMember); len(rolesList) != 0 {
+		if rolesList, _ := r.GetRolesFromNamespace(ctx, instance, namespaceMember); len(rolesList) != 0 {
 			var summarizedRules []rbacv1.PolicyRule
 			for _, role := range rolesList {
-				if role.Name != constant.NamespaceScopeManagedPrefix+instance.Namespace {
+				if !reg.MatchString(role.Name) {
 					summarizedRules = append(summarizedRules, role.Rules...)
 				}
 			}
-
-			if err := r.CreateRuntimeRoleToNamespace(instance, namespaceMember, summarizedRules); err != nil {
+			if err := r.CreateRuntimeRoleToNamespace(ctx, instance, namespaceMember, summarizedRules); err != nil {
 				klog.Infof("Failed to create runtime role: %v", err)
-				return ctrl.Result{}, nil
+				return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 			}
 		}
 	}
@@ -148,7 +178,7 @@ func (r *NamespaceScopeReconciler) Reconcile(req ctrl.Request) (ctrl.Result, err
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
-func (r *NamespaceScopeReconciler) addFinalizer(nss *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) addFinalizer(ctx context.Context, nss *operatorv1.NamespaceScope) error {
 	controllerutil.AddFinalizer(nss, constant.NamespaceScopeFinalizer)
 	if err := r.Update(ctx, nss); err != nil {
 		klog.Errorf("Failed to update NamespaceScope with finalizer: %v", err)
@@ -158,9 +188,9 @@ func (r *NamespaceScopeReconciler) addFinalizer(nss *operatorv1.NamespaceScope) 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) UpdateStatus(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) UpdateStatus(ctx context.Context, instance *operatorv1.NamespaceScope) error {
 	// Get validated namespaces
-	validatedNamespaces, err := r.getValidatedNamespaces(instance)
+	validatedNamespaces, err := r.getValidatedNamespaces(ctx, instance)
 	if err != nil {
 		klog.Errorf("Failed to get validated namespaces: %v", err)
 		return err
@@ -177,12 +207,12 @@ func (r *NamespaceScopeReconciler) UpdateStatus(instance *operatorv1.NamespaceSc
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) UpdateConfigMap(ctx context.Context, instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmName := instance.Spec.ConfigmapName
 	cmNamespace := instance.Namespace
 	cmKey := types.NamespacedName{Name: cmName, Namespace: cmNamespace}
-	validatedMembers, err := r.getAllValidatedNamespaceMembers(instance)
+	validatedMembers, err := r.getAllValidatedNamespaceMembers(ctx, instance)
 	if err != nil {
 		klog.Errorf("Failed to get all validated namespace members: %v", err)
 		return err
@@ -206,10 +236,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 			}
 			klog.Infof("Created ConfigMap %s", cmKey.String())
 
-			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
-				return err
-			}
-			return nil
+			return r.RestartPods(ctx, instance.Spec.RestartLabels, cm, instance.Namespace)
 		}
 		return err
 	}
@@ -236,7 +263,7 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 
 		// When the configmap updated, restart all the pods with the RestartLabels
 		if restartpod {
-			if err := r.RestartPods(instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
+			if err := r.RestartPods(ctx, instance.Spec.RestartLabels, cm, instance.Namespace); err != nil {
 				return err
 			}
 		}
@@ -244,9 +271,9 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(instance *operatorv1.Namespac
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope) error {
 	fromNs := instance.Namespace
-	saNames, err := r.GetServiceAccountFromNamespace(instance, fromNs)
+	saNames, err := r.GetServiceAccountFromNamespace(ctx, instance, fromNs)
 	if err != nil {
 		return err
 	}
@@ -257,21 +284,36 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(instance *operatorv1.Name
 		return err
 	}
 
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, len(instance.Status.ValidatedMembers))
+
 	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
 			continue
 		}
-		if err := r.generateRBACForNSS(instance, fromNs, toNs); err != nil {
-			return err
-		}
-		if err := r.generateRBACToNamespace(instance, saNames, fromNs, toNs); err != nil {
-			return err
-		}
+
+		wg.Add(1)
+		go func(toNs string) {
+			defer wg.Done()
+			if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
+				errorChannel <- err
+			}
+		}(toNs)
 	}
+
+	// Wait for all RBAC generation to finish
+	wg.Wait()
+	close(errorChannel)
+
+	// Return the first error encountered, if any
+	if len(errorChannel) > 0 {
+		return <-errorChannel
+	}
+
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operatorv1.NamespaceScope, toNs string, summarizedRules []rbacv1.PolicyRule) error {
+func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, toNs string, summarizedRules []rbacv1.PolicyRule) error {
 	fromNs := instance.Namespace
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -282,14 +324,10 @@ func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(instance *operat
 	if toNs == operatorNs {
 		return nil
 	}
-	if err := r.generateRuntimeRoleForNSS(instance, summarizedRules, fromNs, toNs); err != nil {
-		return err
-	}
-
-	return nil
+	return r.generateRuntimeRoleForNSS(ctx, instance, summarizedRules, fromNs, toNs)
 }
 
-func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(ctx context.Context, instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmKey := types.NamespacedName{Name: instance.Spec.ConfigmapName, Namespace: instance.Namespace}
 	if err := r.Client.Get(ctx, cmKey, cm); err != nil {
@@ -305,13 +343,14 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 	if cm.Data["namespaces"] != "" {
 		nsInCm = strings.Split(cm.Data["namespaces"], ",")
 	}
-	nsInCr, err := r.getAllValidatedNamespaceMembers(instance)
+	nsInCr, err := r.getAllValidatedNamespaceMembers(ctx, instance)
 	if err != nil {
 		return err
 	}
 	unmanagedNss := util.GetListDifference(nsInCm, nsInCr)
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap": configmapValue,
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -325,14 +364,14 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 			continue
 		}
 
-		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
+		if err := r.DeleteRoleBinding(ctx, labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
 		}
-		if err := r.DeleteRole(labels, toNs); err != nil {
+		if err := r.DeleteRole(ctx, labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
@@ -344,9 +383,10 @@ func (r *NamespaceScopeReconciler) DeleteRbacFromUnmanagedNamespace(instance *op
 }
 
 // When delete NamespaceScope instance, cleanup all RBAC resources
-func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) DeleteAllRbac(ctx context.Context, instance *operatorv1.NamespaceScope) error {
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap": configmapValue,
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
@@ -355,7 +395,7 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		return err
 	}
 
-	usingMembers, err := r.getAllValidatedNamespaceMembers(instance)
+	usingMembers, err := r.getAllValidatedNamespaceMembers(ctx, instance)
 	if err != nil {
 		return err
 	}
@@ -365,14 +405,14 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 		if toNs == operatorNs {
 			continue
 		}
-		if err := r.DeleteRoleBinding(labels, toNs); err != nil {
+		if err := r.DeleteRoleBinding(ctx, labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
 			}
 			return err
 		}
-		if err := r.DeleteRole(labels, toNs); err != nil {
+		if err := r.DeleteRole(ctx, labels, toNs); err != nil {
 			if errors.IsForbidden(err) {
 				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot delete resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
 				continue
@@ -383,33 +423,10 @@ func (r *NamespaceScopeReconciler) DeleteAllRbac(instance *operatorv1.NamespaceS
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) generateRBACForNSS(instance *operatorv1.NamespaceScope, fromNs, toNs string) error {
-	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
-	}
-	if err := r.createRoleForNSS(labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-	if err := r.createRoleBindingForNSS(labels, fromNs, toNs); err != nil {
-		if errors.IsForbidden(err) {
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-		}
-		return err
-	}
-
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
-	if err := r.createRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
+func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(ctx context.Context, instance *operatorv1.NamespaceScope, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+	if err := r.createRuntimeRoleForNSS(ctx, summarizedRules, fromNs, toNs); err != nil {
 		if errors.IsAlreadyExists(err) {
-			if err := r.updateRuntimeRoleForNSS(summarizedRules, fromNs, toNs); err != nil {
-				return err
-			}
-			return nil
+			return r.updateRuntimeRoleForNSS(ctx, summarizedRules, fromNs, toNs)
 		}
 		if errors.IsForbidden(err) {
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
@@ -420,7 +437,7 @@ func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(instance *operatorv
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(ctx context.Context, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	name := constant.NamespaceScopeRuntimePrefix + fromNs
 	namespace := toNs
 	role := &rbacv1.Role{
@@ -442,7 +459,7 @@ func (r *NamespaceScopeReconciler) createRuntimeRoleForNSS(summarizedRules []rba
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, summarizedRules []rbacv1.PolicyRule, fromNs, toNs string) error {
 	name := constant.NamespaceScopeRuntimePrefix + fromNs
 	namespace := toNs
 
@@ -464,99 +481,61 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(summarizedRules []rba
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) createRoleForNSS(labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:     []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"},
-				APIGroups: []string{"*"},
-				Resources: []string{"*"},
-			},
-		},
-	}
-	if err := r.Create(ctx, role); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created role %s/%s", namespace, name)
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) createRoleBindingForNSS(labels map[string]string, fromNs, toNs string) error {
-	name := constant.NamespaceScopeManagedPrefix + fromNs
-	namespace := toNs
-	subjects := []rbacv1.Subject{}
-	subject := rbacv1.Subject{
-		Kind:      "ServiceAccount",
-		Name:      constant.NamespaceScopeServiceAccount,
-		Namespace: fromNs,
-	}
-	subjects = append(subjects, subject)
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Subjects: subjects,
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     constant.NamespaceScopeManagedPrefix + fromNs,
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-
-	if err := r.Create(ctx, roleBinding); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		klog.Errorf("Failed to create rolebinding %s/%s: %v", namespace, name, err)
-		return err
-	}
-	klog.Infof("Created rolebinding %s/%s", namespace, name)
-	return nil
-}
-
-func (r *NamespaceScopeReconciler) generateRBACToNamespace(instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
+	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
-		"namespace-scope-configmap": instance.Namespace + "-" + instance.Spec.ConfigmapName,
+		"namespace-scope-configmap":    configmapValue,
+		"app.kubernetes.io/instance":   "namespace-scope",
+		"app.kubernetes.io/managed-by": "ibm-namespace-scope-operator",
+		"app.kubernetes.io/name":       instance.Spec.ConfigmapName,
 	}
+
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, len(saNames))
+
 	for _, sa := range saNames {
-		roleList, err := r.GetRolesFromServiceAccount(sa, fromNs)
+		wg.Add(1)
 
-		klog.V(2).Infof("Roles waiting to be copied: %v", roleList)
+		go func(sa string) {
+			defer wg.Done()
 
-		if err != nil {
-			return err
-		}
-
-		if err := r.CreateRole(roleList, labels, sa, fromNs, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+			roleList, err := r.GetRolesFromServiceAccount(ctx, sa, fromNs)
+			if err != nil {
+				errorChannel <- err
+				return
 			}
-			return err
-		}
-		if err := r.CreateRoleBinding(roleList, labels, sa, fromNs, toNs); err != nil {
-			if errors.IsForbidden(err) {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+
+			klog.V(2).Infof("Roles waiting to be copied for SA %s: %v", sa, roleList)
+
+			if err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
+				if errors.IsForbidden(err) {
+					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+				}
+				errorChannel <- err
+				return
 			}
-			return err
-		}
+
+			if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
+				if errors.IsForbidden(err) {
+					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+				}
+				errorChannel <- err
+				return
+			}
+		}(sa)
 	}
+
+	wg.Wait()
+	close(errorChannel)
+
+	if len(errorChannel) > 0 {
+		return <-errorChannel
+	}
+
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) GetRolesFromNamespace(namespace string) ([]rbacv1.Role, error) {
+func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, namespace string) ([]rbacv1.Role, error) {
 	rolesList := &rbacv1.RoleList{}
 
 	opts := []client.ListOption{
@@ -573,7 +552,8 @@ func (r *NamespaceScopeReconciler) GetRolesFromNamespace(namespace string) ([]rb
 
 	roles := []rbacv1.Role{}
 	for _, role := range rolesList.Items {
-		if _, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok {
+		configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
+		if value, ok := role.Labels[constant.NamespaceScopeConfigmapLabelKey]; ok && value == configmapValue {
 			roles = append(roles, role)
 		}
 	}
@@ -581,7 +561,7 @@ func (r *NamespaceScopeReconciler) GetRolesFromNamespace(namespace string) ([]rb
 	return roles, nil
 }
 
-func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {
+func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, namespace string) ([]string, error) {
 	labels := instance.Spec.RestartLabels
 	pods := &corev1.PodList{}
 	opts := []client.ListOption{
@@ -618,7 +598,7 @@ func (r *NamespaceScopeReconciler) GetServiceAccountFromNamespace(instance *oper
 	return saNames, nil
 }
 
-func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespace string) ([]string, error) {
+func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Context, sa string, namespace string) ([]string, error) {
 	roleBindings := &rbacv1.RoleBindingList{}
 	opts := []client.ListOption{
 		client.InNamespace(namespace),
@@ -641,7 +621,18 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(sa string, namespa
 	return util.ToStringSlice(util.MakeSet(roleNameList)), nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+	// Get the permissions that NamespaceScope Operator has from the toNs
+	nssManagedRole := &rbacv1.Role{}
+	if err := r.Reader.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Errorf("Role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+			return err
+		}
+		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
+		return err
+	}
+
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
 		if err := r.Reader.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
@@ -655,7 +646,7 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules := rulesFilter(originalRole.Rules)
+		rules := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -680,7 +671,7 @@ func (r *NamespaceScopeReconciler) CreateRole(roleNames []string, labels map[str
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs string) error {
+func (r *NamespaceScopeReconciler) DeleteRole(ctx context.Context, labels map[string]string, toNs string) error {
 	opts := []client.DeleteAllOfOption{
 		client.MatchingLabels(labels),
 		client.InNamespace(toNs),
@@ -693,7 +684,7 @@ func (r *NamespaceScopeReconciler) DeleteRole(labels map[string]string, toNs str
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) CreateRoleBinding(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
 	for _, roleName := range roleNames {
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
@@ -731,7 +722,7 @@ func (r *NamespaceScopeReconciler) CreateRoleBinding(roleNames []string, labels 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) DeleteRoleBinding(labels map[string]string, toNs string) error {
+func (r *NamespaceScopeReconciler) DeleteRoleBinding(ctx context.Context, labels map[string]string, toNs string) error {
 	opts := []client.DeleteAllOfOption{
 		client.MatchingLabels(labels),
 		client.InNamespace(toNs),
@@ -745,7 +736,7 @@ func (r *NamespaceScopeReconciler) DeleteRoleBinding(labels map[string]string, t
 }
 
 // Restart pods in specific namespace with the matching labels
-func (r *NamespaceScopeReconciler) RestartPods(labels map[string]string, cm *corev1.ConfigMap, namespace string) error {
+func (r *NamespaceScopeReconciler) RestartPods(ctx context.Context, labels map[string]string, cm *corev1.ConfigMap, namespace string) error {
 	klog.Infof("Restarting pods in namespace %s with matching labels: %v", namespace, labels)
 	opts := []client.ListOption{
 		client.MatchingLabels(labels),
@@ -884,7 +875,7 @@ func (r *NamespaceScopeReconciler) setDefaults(instance *operatorv1.NamespaceSco
 	return instance
 }
 
-func (r *NamespaceScopeReconciler) getAllValidatedNamespaceMembers(instance *operatorv1.NamespaceScope) ([]string, error) {
+func (r *NamespaceScopeReconciler) getAllValidatedNamespaceMembers(ctx context.Context, instance *operatorv1.NamespaceScope) ([]string, error) {
 	// List the instance using the same configmap
 	crList := &operatorv1.NamespaceScopeList{}
 	namespaceMembers := []string{}
@@ -904,7 +895,7 @@ func (r *NamespaceScopeReconciler) getAllValidatedNamespaceMembers(instance *ope
 	return util.ToStringSlice(util.MakeSet(namespaceMembers)), nil
 }
 
-func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
+func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	sar := &authorizationv1.SelfSubjectAccessReview{
 		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
@@ -923,47 +914,48 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth() bool {
 	return sar.Status.Allowed
 }
 
-// Check if operator has namespace admin permission
-func (r *NamespaceScopeReconciler) checkNamespaceAdminAuth(namespace string) bool {
-	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
-	for _, verb := range verbs {
-		sar := &authorizationv1.SelfSubjectAccessReview{
-			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authorizationv1.ResourceAttributes{
-					Namespace: namespace,
-					Verb:      verb,
-					Group:     "*",
-					Resource:  "*",
-				},
-			},
-		}
-		if err := r.Create(ctx, sar); err != nil {
-			klog.Errorf("Failed to check operator namespace permission: %v", err)
-			return false
-		}
-
-		klog.V(2).Infof("Namespace admin permission in namespace %s, Allowed: %t, Denied: %t, Reason: %s", namespace, sar.Status.Allowed, sar.Status.Denied, sar.Status.Reason)
-
-		if !sar.Status.Allowed {
-			return false
-		}
-	}
-	return true
-}
-
-func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, v := range verbs {
 		verbMap[v] = struct{}{}
 	}
+	needRuleAppending := false
+	for i := 0; i < len(orgRule); {
+		// filter out the wildcard in APIGroups
+		for j := 0; j < len(orgRule[i].APIGroups); {
+			if orgRule[i].APIGroups[j] == "*" {
+				orgRule[i].APIGroups = append(orgRule[i].APIGroups[:j], orgRule[i].APIGroups[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].APIGroups) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
+		// filter out the wildcard in Resources
+		for j := 0; j < len(orgRule[i].Resources); {
+			if orgRule[i].Resources[j] == "*" {
+				orgRule[i].Resources = append(orgRule[i].Resources[:j], orgRule[i].Resources[j+1:]...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
+				needRuleAppending = true
+				continue
+			}
+			j++
+		}
+		if len(orgRule[i].Resources) == 0 {
+			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
+		}
 
-	for i := 0; i < len(orgRule); i++ {
-		j := 0
-		for j < len(orgRule[i].Verbs) {
+		for j := 0; j < len(orgRule[i].Verbs); {
 			if orgRule[i].Verbs[j] == "*" {
 				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
 				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
+				klog.Warningf("Role %s in namespace %s has wildcard * in Verbs, which is replaced with all verbs in its copied Role in namespace %s", roleName, fromNs, toNs)
 				continue
 			}
 			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
@@ -972,14 +964,23 @@ func rulesFilter(orgRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 			}
 			j++
 		}
+
 		if len(orgRule[i].Verbs) == 0 {
 			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+			continue
 		}
+		i++
 	}
+
+	if needRuleAppending {
+		orgRule = append(orgRule, nssManagedRule...)
+		klog.Infof("Role %s has been appended with role %s in namespace %s", roleName, constant.NamespaceScopeManagedPrefix+fromNs, toNs)
+	}
+
 	return orgRule
 }
 
-func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.NamespaceScope) ([]string, error) {
+func (r *NamespaceScopeReconciler) getValidatedNamespaces(ctx context.Context, instance *operatorv1.NamespaceScope) ([]string, error) {
 	var validatedNs []string
 	operatorNs, err := util.GetOperatorNamespace()
 	if err != nil {
@@ -991,38 +992,28 @@ func (r *NamespaceScopeReconciler) getValidatedNamespaces(instance *operatorv1.N
 			validatedNs = append(validatedNs, nsMem)
 			continue
 		}
-		// Check if operator has target namespace admin permission
-		if r.checkNamespaceAdminAuth(nsMem) {
-			// Check if operator has permission to get namespace resource
-			if r.checkGetNSAuth() {
-				ns := &corev1.Namespace{}
-				key := types.NamespacedName{Name: nsMem}
-				if err := r.Client.Get(ctx, key, ns); err != nil {
-					if errors.IsNotFound(err) {
-						klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
-						continue
-					} else {
-						return nil, err
-					}
-				}
-				if ns.Status.Phase == corev1.NamespaceTerminating {
-					klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)
+		// Check if operator has permission to get namespace resource
+		if r.checkGetNSAuth(ctx) {
+			ns := &corev1.Namespace{}
+			key := types.NamespacedName{Name: nsMem}
+			if err := r.Reader.Get(ctx, key, ns); err != nil {
+				if errors.IsNotFound(err) {
+					klog.Infof("Namespace %s does not exist and will be ignored", nsMem)
 					continue
 				}
+				return nil, err
 			}
-			validatedNs = append(validatedNs, nsMem)
-		} else {
-			klog.Infof("ibm-namespace-scope-operator doesn't have admin permission in namespace %s", nsMem)
-			klog.Infof("NOTE: Please refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem)
-			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "ibm-namespace-scope-operator doesn't have admin permission in namespace %s. NOTE: Refer to https://ibm.biz/cs_namespace_operator to authorize ibm-namespace-scope-operator permissions to namespace %s", nsMem, nsMem)
+			if ns.Status.Phase == corev1.NamespaceTerminating {
+				klog.Infof("Namespace %s is terminating. Ignore this namespace", nsMem)
+				continue
+			}
 		}
+		validatedNs = append(validatedNs, nsMem)
 	}
 	return validatedNs, nil
 }
 
-func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx = context.Background()
-
+func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Fetch the NamespaceScope instance
 	instance := &operatorv1.NamespaceScope{}
 
@@ -1058,12 +1049,21 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 
 	candidateSet := util.MakeSet(candidateOperatorPackage)
 	var managedCSVList, patchedCSVList []string
+	var managedWebhookList, patchedWebhookList []string
+	validatedMembers, err := r.getAllValidatedNamespaceMembers(ctx, instance)
+	if err != nil {
+		klog.Errorf("Failed to get all validated namespace members: %v", err)
+		return ctrl.Result{}, err
+	}
+
 	for _, packageName := range candidateSet.ToSlice() {
 		managedCSVList = append(managedCSVList, packageName.(string))
 		csvList := &olmv1alpha1.ClusterServiceVersionList{}
+		labelKey := packageName.(string) + "." + instance.Namespace
+		labelKey = util.GetFirstNCharacter(labelKey, 63)
 		if err := r.Client.List(ctx, csvList, &client.ListOptions{
 			LabelSelector: labels.SelectorFromSet(map[string]string{
-				"operators.coreos.com/" + packageName.(string) + "." + instance.Namespace: "",
+				"operators.coreos.com/" + labelKey: "",
 			})}); err != nil {
 			klog.Error(err)
 			return ctrl.Result{}, err
@@ -1072,65 +1072,89 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 			continue
 		}
 		patchedCSVList = append(patchedCSVList, packageName.(string))
-		csv := csvList.Items[0]
-		csvOriginal := csv.DeepCopy()
-		if csv.Spec.InstallStrategy.StrategyName != "deployment" {
-			continue
-		}
-		deploymentSpecs := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
-		for _, deploy := range deploymentSpecs {
-			podTemplate := deploy.Spec.Template
-			// Insert restartlabel into operator pods
-			if podTemplate.Labels == nil {
-				podTemplate.Labels = make(map[string]string)
+
+		for _, c := range csvList.Items {
+			// avoid Implicit memory aliasing in for loop
+			csv := c
+			klog.V(2).Infof("Found CSV %s for packageManifest %s", csv.Name, packageName.(string))
+			// check if this csv has patch webhook annotation
+			_, patchWebhook := csv.Annotations[constant.WebhookMark]
+			if patchWebhook {
+				klog.Infof("Patching webhookconfiguration for CSV %s", csv.Name)
+				if err := r.patchWebhook(ctx, instance, &csv, &managedWebhookList, &patchedWebhookList, validatedMembers); err != nil {
+					return ctrl.Result{}, err
+				}
 			}
-			for k, v := range instance.Spec.RestartLabels {
-				podTemplate.Labels[k] = v
+			csvOriginal := csv.DeepCopy()
+			if csv.Spec.InstallStrategy.StrategyName != "deployment" {
+				continue
 			}
-			// Insert WATCH_NAMESPACE into operator pod environment variables
-			for containerIndex, container := range podTemplate.Spec.Containers {
-				var found bool
-				optional := true
-				configmapEnv := corev1.EnvVar{
-					Name: "WATCH_NAMESPACE",
-					ValueFrom: &corev1.EnvVarSource{
-						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-							Optional: &optional,
-							Key:      "namespaces",
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: configmapName,
+			deploymentSpecs := csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs
+			for _, deploy := range deploymentSpecs {
+				podTemplate := deploy.Spec.Template
+				// Insert restartlabel into operator pods
+				if podTemplate.Labels == nil {
+					podTemplate.Labels = make(map[string]string)
+				}
+				for k, v := range instance.Spec.RestartLabels {
+					podTemplate.Labels[k] = v
+				}
+				// Insert WATCH_NAMESPACE into operator pod environment variables
+				for containerIndex, container := range podTemplate.Spec.Containers {
+					var found bool
+					optional := true
+					configmapEnv := corev1.EnvVar{
+						Name: "WATCH_NAMESPACE",
+						ValueFrom: &corev1.EnvVarSource{
+							ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+								Optional: &optional,
+								Key:      "namespaces",
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: configmapName,
+								},
 							},
 						},
-					},
-				}
-				for index, env := range container.Env {
-					if env.Name == "WATCH_NAMESPACE" {
-						found = true
-						if env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Key == "namespaces" && env.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name == configmapName {
-							continue
-						}
-						container.Env[index] = configmapEnv
 					}
+					for index, env := range container.Env {
+						if env.Name == "WATCH_NAMESPACE" {
+							found = true
+							if env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Key == "namespaces" && env.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name == configmapName {
+								klog.V(2).Infof("WATCH_NAMESPACE ENV variable is found in CSV %s, and match the configmap %s, skip it", csv.Name, configmapName)
+								continue
+							}
+							klog.V(2).Infof("WATCH_NAMESPACE ENV variable is found in CSV %s, but not match the configmap %s, replace it", csv.Name, configmapName)
+							container.Env[index] = configmapEnv
+						}
+					}
+					if !found {
+						klog.V(2).Infof("WATCH_NAMESPACE ENV variable is not found in CSV %s, insert it", csv.Name)
+						container.Env = append(container.Env, configmapEnv)
+					}
+					podTemplate.Spec.Containers[containerIndex] = container
 				}
-				if !found {
-					container.Env = append(container.Env, configmapEnv)
-				}
-				podTemplate.Spec.Containers[containerIndex] = container
 			}
-		}
+			if equality.Semantic.DeepEqual(csvOriginal.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs) {
+				klog.V(3).Infof("No updates in the CSV, skip patching the CSV %s ", csv.Name)
+				continue
+			}
 
-		if equality.Semantic.DeepDerivative(csvOriginal.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs) {
-			klog.V(3).Infof("No updates in the CSV, skip patching the CSV %s ", csv.Name)
-			continue
+			if err := r.Client.Patch(ctx, &csv, client.MergeFrom(csvOriginal)); err != nil {
+				klog.Error(err)
+				return ctrl.Result{}, err
+			}
+			klog.V(1).Infof("WATCH_NAMESPACE and restart labels are inserted into CSV %s ", csv.Name)
 		}
-
-		if err := r.Client.Patch(ctx, &csv, client.MergeFrom(csvOriginal)); err != nil {
-			klog.Error(err)
-			return ctrl.Result{}, err
-		}
-		klog.V(1).Infof("WATCH_NAMESPACE and restart labels are inserted into CSV %s ", csv.Name)
-
 	}
+
+	if _, err := r.CheckListDifference(ctx, instance, originalInstance, managedCSVList, managedWebhookList, patchedCSVList, patchedWebhookList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
+}
+
+func (r *NamespaceScopeReconciler) CheckListDifference(ctx context.Context, instance *operatorv1.NamespaceScope, originalInstance *operatorv1.NamespaceScope, managedCSVList []string,
+	managedWebhookList []string, patchedCSVList []string, patchedWebhookList []string) (ctrl.Result, error) {
 
 	if util.CheckListDifference(instance.Status.ManagedCSVList, managedCSVList) {
 		instance.Status.ManagedCSVList = managedCSVList
@@ -1138,6 +1162,14 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 
 	if util.CheckListDifference(instance.Status.PatchedCSVList, patchedCSVList) {
 		instance.Status.PatchedCSVList = patchedCSVList
+	}
+
+	if util.CheckListDifference(instance.Status.ManagedWebhookList, managedWebhookList) {
+		instance.Status.ManagedWebhookList = managedWebhookList
+	}
+
+	if util.CheckListDifference(instance.Status.PatchedWebhookList, patchedWebhookList) {
+		instance.Status.PatchedWebhookList = patchedWebhookList
 	}
 
 	if reflect.DeepEqual(originalInstance.Status, instance.Status) {
@@ -1149,10 +1181,179 @@ func (r *NamespaceScopeReconciler) CSVReconcile(req ctrl.Request) (ctrl.Result, 
 	return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
 }
 
-func (r *NamespaceScopeReconciler) csvtoRequest() handler.ToRequestsFunc {
-	return func(object handler.MapObject) []ctrl.Request {
+func (r *NamespaceScopeReconciler) patchWebhook(ctx context.Context, instance *operatorv1.NamespaceScope, csv *olmv1alpha1.ClusterServiceVersion,
+	managedWebhookList *[]string, patchedWebhookList *[]string, validatedMembers []string) error {
+	// get webhooklists
+	mWebhookList, vWebhookList, err := r.getWebhooks(ctx, csv.Name, instance.Namespace)
+	if err != nil {
+		return err
+	}
+	// add them to the list
+	for _, mwbh := range mWebhookList.Items {
+		webhook := mwbh
+		*managedWebhookList = append(*managedWebhookList, mwbh.GetName())
+		if err := r.patchMutatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
+			return err
+		}
+		*patchedWebhookList = append(*patchedWebhookList, mwbh.GetName())
+	}
+	for _, vwbh := range vWebhookList.Items {
+		webhook := vwbh
+		*managedWebhookList = append(*managedWebhookList, vwbh.GetName())
+		if err := r.patchValidatingWebhook(ctx, &webhook, validatedMembers, csv.Name, csv.Namespace); err != nil {
+			return err
+		}
+		*patchedWebhookList = append(*patchedWebhookList, vwbh.GetName())
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) getWebhooks(ctx context.Context, csvName string, csvNs string) (*admissionv1.MutatingWebhookConfigurationList, *admissionv1.ValidatingWebhookConfigurationList, error) {
+	vWebhookList := &admissionv1.ValidatingWebhookConfigurationList{}
+	mWebhookList := &admissionv1.MutatingWebhookConfigurationList{}
+
+	labelSelector := labels.SelectorFromSet(
+		map[string]string{
+			ownerutil.OwnerKey:          csvName,
+			ownerutil.OwnerKind:         "ClusterServiceVersion",
+			ownerutil.OwnerNamespaceKey: csvNs,
+		},
+	)
+
+	if err := r.Client.List(ctx, vWebhookList, &client.ListOptions{
+		LabelSelector: labelSelector,
+	}); err != nil {
+		return mWebhookList, vWebhookList, err
+	}
+
+	if err := r.Client.List(ctx, mWebhookList, &client.ListOptions{
+		LabelSelector: labelSelector,
+	}); err != nil {
+		return mWebhookList, vWebhookList, err
+	}
+
+	return mWebhookList, vWebhookList, nil
+}
+
+func (r *NamespaceScopeReconciler) patchMutatingWebhook(ctx context.Context, webhookconfig *admissionv1.MutatingWebhookConfiguration, nsList []string, csvName string, csvNS string) error {
+	klog.Infof("Patching mutatingwebhookconfig scope for: %s, control by csv %s/%s", webhookconfig.Name, csvName, csvNS)
+	for i, webhook := range webhookconfig.Webhooks {
+		klog.V(2).Infof("Patching webhook scope for: %s", webhook.Name)
+		skipPatch := false
+		wbhNSSelector := metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: constant.MatchExpressionsKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   nsList},
+			},
+		}
+
+		if webhook.NamespaceSelector == nil {
+			return fmt.Errorf("fail to get namespaceSelector")
+		}
+
+		if webhook.NamespaceSelector.MatchExpressions != nil {
+			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
+				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
+				if reflect.DeepEqual(namespaces, nsList) {
+					klog.V(2).Infof("Namespace selector has been patched, skip patching webhook")
+					skipPatch = true
+				}
+			}
+		}
+
+		if !skipPatch {
+			webhookconfig.Webhooks[i].NamespaceSelector = &wbhNSSelector
+		}
+	}
+	klog.Infof("Patching webhook scope for: %s", webhookconfig.Name)
+	if err := r.Update(ctx, webhookconfig); err != nil {
+		klog.Errorf("failed to update webhook %s: %v", webhookconfig.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) patchValidatingWebhook(ctx context.Context, webhookconfig *admissionv1.ValidatingWebhookConfiguration,
+	nsList []string, csvName string, csvNS string) error {
+	klog.Infof("Patching validatingwebhookconfig scope for: %s, control by csv %s/%s", webhookconfig.Name, csvName, csvNS)
+	for i, webhook := range webhookconfig.Webhooks {
+		klog.V(2).Infof("Patching webhook scope for: %s", webhook.Name)
+		skipPatch := false
+		wbhNSSelector := metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: constant.MatchExpressionsKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   nsList},
+			},
+		}
+
+		if webhook.NamespaceSelector == nil {
+			return fmt.Errorf("fail to get namespaceSelector")
+		}
+		if webhook.NamespaceSelector.MatchExpressions != nil {
+			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
+				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
+				if reflect.DeepEqual(namespaces, nsList) {
+					klog.V(2).Infof("Namespace selector has been patched, skip patching webhook")
+					skipPatch = true
+				}
+			}
+		}
+
+		if !skipPatch {
+			webhookconfig.Webhooks[i].NamespaceSelector = &wbhNSSelector
+		}
+	}
+
+	klog.Infof("Patching webhookconfig scope for: %s", webhookconfig.Name)
+	if err := r.Update(ctx, webhookconfig); err != nil {
+		klog.Errorf("failed to update webhook %s: %v", webhookconfig.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (r *NamespaceScopeReconciler) csvtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
 		nssList := &operatorv1.NamespaceScopeList{}
-		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.Meta.GetNamespace()})
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
+		if err != nil {
+			klog.Error(err)
+		}
+		requests := []ctrl.Request{}
+
+		for _, request := range nssList.Items {
+			namespaceName := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+			req := ctrl.Request{NamespacedName: namespaceName}
+			requests = append(requests, req)
+		}
+		return requests
+	}
+}
+
+func (r *NamespaceScopeReconciler) validatingwebhookconfigtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
+		nssList := &operatorv1.NamespaceScopeList{}
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
+		if err != nil {
+			klog.Error(err)
+		}
+		requests := []ctrl.Request{}
+
+		for _, request := range nssList.Items {
+			namespaceName := types.NamespacedName{Name: request.Name, Namespace: request.Namespace}
+			req := ctrl.Request{NamespacedName: namespaceName}
+			requests = append(requests, req)
+		}
+		return requests
+	}
+}
+
+func (r *NamespaceScopeReconciler) mutatingwebhookconfigtoRequest() handler.MapFunc {
+	return func(object client.Object) []ctrl.Request {
+		nssList := &operatorv1.NamespaceScopeList{}
+		err := r.Client.List(context.TODO(), nssList, &client.ListOptions{Namespace: object.GetNamespace()})
 		if err != nil {
 			klog.Error(err)
 		}
@@ -1177,22 +1378,51 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	err = ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, &handler.EnqueueRequestsFromMapFunc{
-			ToRequests: r.csvtoRequest(),
-		}, builder.WithPredicates(predicate.Funcs{
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				// Evaluates to false if the object has been confirmed deleted.
-				return !e.DeleteStateUnknown
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
-				newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
-				return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
-			},
-			CreateFunc: func(e event.CreateEvent) bool {
-				return true
-			},
-		})).
+		Watches(&source.Kind{Type: &olmv1alpha1.ClusterServiceVersion{}}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*olmv1alpha1.ClusterServiceVersion)
+					newObject := e.ObjectNew.(*olmv1alpha1.ClusterServiceVersion)
+					return !equality.Semantic.DeepDerivative(oldObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs, newObject.Spec.InstallStrategy.StrategySpec.DeploymentSpecs)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
+		Watches(&source.Kind{Type: &admissionv1.ValidatingWebhookConfiguration{}}, handler.EnqueueRequestsFromMapFunc(r.validatingwebhookconfigtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*admissionv1.ValidatingWebhookConfiguration)
+					newObject := e.ObjectNew.(*admissionv1.ValidatingWebhookConfiguration)
+					return !equality.Semantic.DeepDerivative(oldObject.Webhooks, newObject.Webhooks)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
+		Watches(&source.Kind{Type: &admissionv1.MutatingWebhookConfiguration{}}, handler.EnqueueRequestsFromMapFunc(r.mutatingwebhookconfigtoRequest()),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					// Evaluates to false if the object has been confirmed deleted.
+					return !e.DeleteStateUnknown
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldObject := e.ObjectOld.(*admissionv1.MutatingWebhookConfiguration)
+					newObject := e.ObjectNew.(*admissionv1.MutatingWebhookConfiguration)
+					return !equality.Semantic.DeepDerivative(oldObject.Webhooks, newObject.Webhooks)
+				},
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			})).
 		Complete(reconcile.Func(r.CSVReconcile))
 	if err != nil {
 		return err

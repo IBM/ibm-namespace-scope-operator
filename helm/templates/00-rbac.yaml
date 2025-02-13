@@ -3,6 +3,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
   namespace: {{ .Values.global.operatorNamespace }}
+  labels:
+    component-id: {{ .Chart.Name }}
 rules:
   - verbs:
       - create
@@ -81,6 +83,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
   namespace: {{ .Values.global.operatorNamespace }}
+  labels:
+    component-id: {{ .Chart.Name }}
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
@@ -97,5 +101,6 @@ metadata:
     app.kubernetes.io/instance: ibm-namespace-scope-operator
     app.kubernetes.io/managed-by: ibm-namespace-scope-operator
     app.kubernetes.io/name: ibm-namespace-scope-operator
+    component-id: {{ .Chart.Name }}
   name: ibm-namespace-scope-operator
   namespace: {{ .Values.global.operatorNamespace }}

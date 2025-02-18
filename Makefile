@@ -22,6 +22,7 @@ KUSTOMIZE ?= $(shell which kustomize)
 YQ_VERSION=3.4.0
 KUSTOMIZE_VERSION=v3.8.7
 OPERATOR_SDK_VERSION=v1.32.0
+OPENSHIFT_VERSIONS ?= v4.12-v4.17
 
 GOPATH=$(HOME)/go/bin/
 
@@ -64,6 +65,7 @@ endif
 
 # Default image repo
 QUAY_REGISTRY ?= quay.io/opencloudio
+ICR_REIGSTRY ?= icr.io/cpopen
 
 ifeq ($(BUILD_LOCALLY),0)
 ARTIFACTORYA_REGISTRY ?= "docker-na-public.artifactory.swg-devops.com/hyc-cloud-private-integration-docker-local/ibmcom"
@@ -75,11 +77,9 @@ endif
 OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 # Current Operator bundle image name
 BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
-# Current Operator version
-OPERATOR_VERSION ?= 4.2.13
 
 # Options for 'bundle-build'
-CHANNELS ?= v4.0
+CHANNELS ?= v4.2
 DEFAULT_CHANNEL ?= v4.0
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
@@ -89,8 +89,8 @@ BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
-# Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
-CRD_OPTIONS ?= "crd:trivialVersions=true"
+# Generate CRDs using v1, which is the recommended version for Kubernetes 1.16+.
+CRD_OPTIONS ?= "crd:crdVersions=v1"
 
 ifeq ($(BUILD_LOCALLY),0)
     export CONFIG_DOCKER_TARGET = config-docker
@@ -125,11 +125,11 @@ uninstall: manifests ## Uninstall CRDs from a cluster
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 deploy: manifests ## Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(OPERATOR_VERSION)
+	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 undeploy: ## Undeploy controller in the configured Kubernetes cluster in ~/.kube/config
-	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(OPERATOR_VERSION)
+	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 kustomize: ## Install kustomize
@@ -190,10 +190,12 @@ generate: controller-gen ## Generate code e.g. API etc.
 generate-csv-manifests: operator-sdk ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: clis generate manifests ## Generate bundle manifests
+bundle: clis generate manifests ## Generate bundle manifests	
 	# Generate bundle manifests
-	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
-	-q --version $(OPERATOR_VERSION) $(BUNDLE_METADATA_OPTS)
+	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(ICR_REIGSTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
+	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	-q --version $(RELEASE_VERSION) $(BUNDLE_METADATA_OPTS)
+	- sed -i '$$a\\n# OpenShift annotations.\n  com.redhat.openshift.versions: $(OPENSHIFT_VERSIONS)' bundle/metadata/annotations.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test

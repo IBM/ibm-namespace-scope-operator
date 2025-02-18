@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.5.0
+    controller-gen.kubebuilder.io/version: v0.17.2
   creationTimestamp: null
   name: namespacescopes.operator.ibm.com
 spec:
@@ -22,14 +22,19 @@ spec:
         description: NamespaceScope is the Schema for the namespacescopes API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -51,7 +56,8 @@ spec:
                 - enable
                 type: object
               license:
-                description: LicenseAcceptance defines the license specification in CSV
+                description: LicenseAcceptance defines the license specification in
+                  CSV
                 properties:
                   accept:
                     description: 'Accepting the license - URL: https://ibm.biz/integration-licenses'
@@ -60,18 +66,18 @@ spec:
                     description: The license key for this deployment.
                     type: string
                   license:
-                    description: The license being accepted where the component has multiple.
+                    description: The license being accepted where the component has
+                      multiple.
                     type: string
                   use:
                     description: The type of license being accepted.
                     type: string
                 type: object
               manualManagement:
-                description: Set the following to true to manually manage permissions
-                  for the NamespaceScope operator to extend control over other namespaces
-                  The operator may fail when trying to extend permissions to other
-                  namespaces, but the cluster administrator can correct this using
-                  the authorize-namespace command.
+                description: |-
+                  Set the following to true to manually manage permissions for the NamespaceScope operator to extend control over other namespaces
+                  The operator may fail when trying to extend permissions to other namespaces, but the cluster administrator can correct this using the
+                  authorize-namespace command.
                 type: boolean
               namespaceMembers:
                 description: Namespaces that are part of this scope
@@ -126,5 +132,5 @@ status:
   acceptedNames:
     kind: ""
     plural: ""
-  conditions: []
-  storedVersions: []
+  conditions: null
+  storedVersions: null

@@ -132,7 +132,7 @@ spec:
                     fieldRef:
                       apiVersion: v1
                       fieldPath: metadata.namespace
-                image: icr.io/cpopen/ibm-namespace-scope-operator:latest
+                image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.13
                 imagePullPolicy: IfNotPresent
                 name: ibm-namespace-scope-operator
                 resources:
@@ -144,8 +144,6 @@ spec:
                     ephemeral-storage: 256Mi
                     memory: 200Mi
                 securityContext:
-                  seccompProfile:
-                    type: RuntimeDefault
                   allowPrivilegeEscalation: false
                   capabilities:
                     drop:
@@ -153,6 +151,8 @@ spec:
                   privileged: false
                   readOnlyRootFilesystem: true
                   runAsNonRoot: true
+                  seccompProfile:
+                    type: RuntimeDefault
               serviceAccountName: ibm-namespace-scope-operator
               terminationGracePeriodSeconds: 10
       permissions:

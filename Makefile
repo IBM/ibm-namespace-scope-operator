@@ -22,6 +22,7 @@ KUSTOMIZE ?= $(shell which kustomize)
 YQ_VERSION=3.4.0
 KUSTOMIZE_VERSION=v3.8.7
 OPERATOR_SDK_VERSION=v1.32.0
+OPENSHIFT_VERSIONS ?= v4.12-v4.17
 
 GOPATH=$(HOME)/go/bin/
 
@@ -64,6 +65,7 @@ endif
 
 # Default image repo
 QUAY_REGISTRY ?= quay.io/opencloudio
+ICR_REIGSTRY ?= icr.io/cpopen
 
 ifeq ($(BUILD_LOCALLY),0)
 ARTIFACTORYA_REGISTRY ?= "docker-na-public.artifactory.swg-devops.com/hyc-cloud-private-integration-docker-local/ibmcom"
@@ -127,7 +129,7 @@ deploy: manifests ## Deploy controller in the configured Kubernetes cluster in ~
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 undeploy: ## Undeploy controller in the configured Kubernetes cluster in ~/.kube/config
-	cd config/manager && $(KUSTOMIZE) edit set image ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
+	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(QUAY_REGISTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 kustomize: ## Install kustomize
@@ -188,10 +190,12 @@ generate: controller-gen ## Generate code e.g. API etc.
 generate-csv-manifests: operator-sdk ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: clis generate manifests ## Generate bundle manifests
+bundle: clis generate manifests ## Generate bundle manifests	
 	# Generate bundle manifests
-	- $(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
+	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(ICR_REIGSTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
+	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(RELEASE_VERSION) $(BUNDLE_METADATA_OPTS)
+	- sed -i '$$a\\n# OpenShift annotations.\n  com.redhat.openshift.versions: $(OPENSHIFT_VERSIONS)' bundle/metadata/annotations.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test

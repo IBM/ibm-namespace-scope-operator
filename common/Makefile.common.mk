@@ -59,7 +59,7 @@ ifeq (, $(CONTROLLER_GEN))
 	CONTROLLER_GEN_TMP_DIR=$$(mktemp -d) ;\
 	cd $$CONTROLLER_GEN_TMP_DIR ;\
 	go mod init tmp ;\
-	GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.5.0 ;\
+	GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.2 ;\
 	rm -rf $$CONTROLLER_GEN_TMP_DIR ;\
 	}
 CONTROLLER_GEN=$(GOPATH)/controller-gen

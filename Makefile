@@ -19,7 +19,7 @@ KUBECTL ?= $(shell which kubectl)
 OPERATOR_SDK ?= $(shell which operator-sdk)
 CONTROLLER_GEN ?= $(shell which controller-gen)
 KUSTOMIZE ?= $(shell which kustomize)
-YQ_VERSION=3.4.0
+YQ_VERSION=v4.27.3
 KUSTOMIZE_VERSION=v3.8.7
 OPERATOR_SDK_VERSION=v1.32.0
 OPENSHIFT_VERSIONS ?= v4.12-v4.17
@@ -80,7 +80,7 @@ BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
 
 # Options for 'bundle-build'
 CHANNELS ?= v4.2
-DEFAULT_CHANNEL ?= v4.0
+DEFAULT_CHANNEL ?= v4.2
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif
@@ -190,12 +190,13 @@ generate: controller-gen ## Generate code e.g. API etc.
 generate-csv-manifests: operator-sdk ## Generate CSV manifests
 	$(OPERATOR_SDK) generate kustomize manifests
 
-bundle: clis generate manifests ## Generate bundle manifests	
+bundle: clis generate manifests generate-csv-manifests ## Generate bundle manifests	
 	# Generate bundle manifests
 	cd config/manager && $(KUSTOMIZE) edit set image icr.io/cpopen/ibm-namespace-scope-operator=$(ICR_REIGSTRY)/$(OPERATOR_IMAGE_NAME):$(RELEASE_VERSION)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle \
 	-q --version $(RELEASE_VERSION) $(BUNDLE_METADATA_OPTS)
 	- sed -i '$$a\\n# OpenShift annotations.\n  com.redhat.openshift.versions: $(OPENSHIFT_VERSIONS)' bundle/metadata/annotations.yaml
+	- $(YQ) eval-all -i '.spec.relatedImages = load("config/manifests/bases/ibm-namespace-scope-operator.clusterserviceversion.yaml").spec.relatedImages' bundle/manifests/ibm-namespace-scope-operator.clusterserviceversion.yaml
 	- $(OPERATOR_SDK) bundle validate ./bundle
 
 ##@ Test

@@ -73,7 +73,8 @@ type NamespaceScope struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Spec   NamespaceScopeSpec   `json:"spec,omitempty"`
+	Spec NamespaceScopeSpec `json:"spec,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
 	Status NamespaceScopeStatus `json:"status,omitempty"`
 }
 

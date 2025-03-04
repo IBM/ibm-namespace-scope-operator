@@ -14,7 +14,7 @@ spec:
   namespaceMembers:
     - {{ .Values.global.operatorNamespace }}
     - {{ .Values.global.instanceNamespace }}
-    {{- range $v := $.Values.global.tetheredNamespace }}
+    {{- range $v := $.Values.global.tetheredNamespaces }}
     - {{ $v }}
     {{- end }}
   restartLabels:

@@ -4,7 +4,7 @@ global:
   imagePullPrefix: icr.io
   imagePullSecret: ibm-entitlement-key
   licenseAccept: true
-  tetheredNamespace: []
+  tetheredNamespaces: []
 cpfs:
   imageRegistryNamespaceOperator: cpopen
   imageRegistryNamespaceOperand: cpopen/cpfs

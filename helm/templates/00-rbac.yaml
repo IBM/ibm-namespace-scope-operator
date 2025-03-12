@@ -1,10 +1,19 @@
+{{- $chartName := .Chart.Name }}
+{{- $operaterNamespace := .Values.global.operatorNamespace }}
+
+{{- $namespaces := .Values.global.tetheredNamespaces | default list -}}
+{{- $namespaces = append $namespaces .Values.global.operatorNamespace -}}
+{{- if .Values.global.instanceNamespace }}
+  {{- $namespaces = append $namespaces .Values.global.instanceNamespace }}
+{{- end }}
+{{- range $i := $namespaces }}
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.global.operatorNamespace }}
+  namespace: {{ $i }}
   labels:
-    component-id: {{ .Chart.Name }}
+    component-id: {{ $chartName }}
 rules:
   - verbs:
       - create
@@ -82,18 +91,19 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ibm-namespace-scope-operator
-  namespace: {{ .Values.global.operatorNamespace }}
+  namespace: {{ $i }}
   labels:
-    component-id: {{ .Chart.Name }}
+    component-id: {{ $chartName }}
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
-    namespace: {{ .Values.global.operatorNamespace }}
+    namespace: {{ $operaterNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: ibm-namespace-scope-operator
 ---
+{{- end }}
 kind: ServiceAccount
 apiVersion: v1
 metadata:

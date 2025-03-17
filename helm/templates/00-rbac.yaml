@@ -1,5 +1,5 @@
 {{- $chartName := .Chart.Name }}
-{{- $operaterNamespace := .Values.global.operatorNamespace }}
+{{- $operatorNamespace := .Values.global.operatorNamespace }}
 
 {{- $namespaces := .Values.global.tetheredNamespaces | default list -}}
 {{- $namespaces = append $namespaces .Values.global.operatorNamespace -}}
@@ -10,7 +10,7 @@
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: ibm-namespace-scope-operator
+  name: nss-managed-role-from-{{ $operatorNamespace }}
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
@@ -97,11 +97,11 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
-    namespace: {{ $operaterNamespace }}
+    namespace: {{ $operatorNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: ibm-namespace-scope-operator
+  name: nss-managed-role-from-{{ $operatorNamespace }}
 ---
 {{- end }}
 kind: ServiceAccount

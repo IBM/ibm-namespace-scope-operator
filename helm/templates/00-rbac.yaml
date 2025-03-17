@@ -6,6 +6,7 @@
 {{- if .Values.global.instanceNamespace }}
   {{- $namespaces = append $namespaces .Values.global.instanceNamespace }}
 {{- end }}
+{{- $labels := .Values.cpfs.labels }}
 {{- range $i := $namespaces }}
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -14,6 +15,9 @@ metadata:
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
+    {{- with $labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
 rules:
   - verbs:
       - create
@@ -94,6 +98,9 @@ metadata:
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
+    {{- with $labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
 subjects:
   - kind: ServiceAccount
     name: ibm-namespace-scope-operator
@@ -112,5 +119,8 @@ metadata:
     app.kubernetes.io/managed-by: ibm-namespace-scope-operator
     app.kubernetes.io/name: ibm-namespace-scope-operator
     component-id: {{ .Chart.Name }}
+    {{- with .Values.cpfs.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
   name: ibm-namespace-scope-operator
   namespace: {{ .Values.global.operatorNamespace }}

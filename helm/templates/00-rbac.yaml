@@ -11,7 +11,7 @@
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: nss-managed-role-from-{{ $operatorNamespace }}
+  name: ibm-namespace-scope-operator
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
@@ -108,7 +108,7 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: nss-managed-role-from-{{ $operatorNamespace }}
+  name: ibm-namespace-scope-operator
 ---
 {{- end }}
 kind: ServiceAccount

@@ -2,6 +2,7 @@ apiVersion: operator.ibm.com/v1
 kind: NamespaceScope
 metadata:
   labels:
+    cpfs.helm/install: 'true'
     foundationservices.cloudpak.ibm.com: nss
     component-id: {{ .Chart.Name }}
     {{- with .Values.cpfs.labels }}

@@ -179,6 +179,9 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *NamespaceScopeReconciler) addFinalizer(ctx context.Context, nss *operatorv1.NamespaceScope) error {
+	if nss.Labels["cpfs.helm/install"] == "true" {
+		return nil
+	}
 	controllerutil.AddFinalizer(nss, constant.NamespaceScopeFinalizer)
 	if err := r.Update(ctx, nss); err != nil {
 		klog.Errorf("Failed to update NamespaceScope with finalizer: %v", err)

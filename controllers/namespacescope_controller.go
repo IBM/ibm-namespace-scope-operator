@@ -1182,7 +1182,8 @@ func (r *NamespaceScopeReconciler) CheckListDifference(ctx context.Context, inst
 		return ctrl.Result{}, err
 	}
 
-	if csvList := util.GetListDifference(managedCSVList, patchedCSVList); csvList != nil {
+	csvList := util.GetListDifference(managedCSVList, patchedCSVList)
+	if len(csvList) != 0 {
 		for _, c := range csvList {
 			klog.Warningf("Unable to patch ClusterServiceVersion %s ", c)
 		}

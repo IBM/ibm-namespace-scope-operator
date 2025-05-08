@@ -79,8 +79,8 @@ OPERATOR_IMAGE_NAME ?= ibm-namespace-scope-operator
 BUNDLE_IMAGE_NAME ?= ibm-namespace-scope-operator-bundle
 
 # Options for 'bundle-build'
-CHANNELS ?= v4.2
-DEFAULT_CHANNEL ?= v4.2
+CHANNELS ?= v4.3
+DEFAULT_CHANNEL ?= v4.3
 ifneq ($(origin CHANNELS), undefined)
 BUNDLE_CHANNELS := --channels=$(CHANNELS)
 endif

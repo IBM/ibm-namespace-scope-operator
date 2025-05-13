@@ -1266,7 +1266,7 @@ func (r *NamespaceScopeReconciler) patchMutatingWebhook(ctx context.Context, web
 		if webhook.NamespaceSelector.MatchExpressions != nil {
 			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
 				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
-				if reflect.DeepEqual(namespaces, nsList) {
+				if !util.CheckListDifference(namespaces, nsList) {
 					klog.V(2).Infof("Namespace selector has been patched, skip patching webhook")
 					skipPatch = true
 				}
@@ -1305,7 +1305,7 @@ func (r *NamespaceScopeReconciler) patchValidatingWebhook(ctx context.Context, w
 		if webhook.NamespaceSelector.MatchExpressions != nil {
 			if webhook.NamespaceSelector.MatchExpressions[0].Values != nil {
 				namespaces := webhook.NamespaceSelector.MatchExpressions[0].Values
-				if reflect.DeepEqual(namespaces, nsList) {
+				if !util.CheckListDifference(namespaces, nsList) {
 					klog.V(2).Infof("Namespace selector has been patched, skip patching webhook")
 					skipPatch = true
 				}

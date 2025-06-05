@@ -1,8 +1,0 @@
-apiVersion: v2
-name: ibm-namespace-scope-operator-cluster-scoped
-description: Helm chart for ibm-namespace-scope-operator
-type: application
-version: "4.2.16"
-appVersion: "4.2.16"
-sources:
-  - https://github.com/IBM/ibm-namespace-scope-operator

@@ -14,7 +14,6 @@
 package common
 
 import (
-	apiv3 "github.com/IBM/ibm-common-service-operator/v4/api/v3"
 	"k8s.io/apimachinery/pkg/labels"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -44,10 +43,9 @@ func NewNSSCache(watchNamespaceList []string, opts ctrl.Options) ctrl.Options {
 	}
 
 	cacheByObject := map[client.Object]cache.ByObject{
-		&corev1.ConfigMap{}:    {Label: configmapSelector.AsSelector()},
-		&rbacv1.Role{}:         {Label: RBACSelector.AsSelector()},
-		&rbacv1.RoleBinding{}:  {Label: RBACSelector.AsSelector()},
-		&apiv3.CommonService{}: {},
+		&corev1.ConfigMap{}:   {Label: configmapSelector.AsSelector()},
+		&rbacv1.Role{}:        {Label: RBACSelector.AsSelector()},
+		&rbacv1.RoleBinding{}: {Label: RBACSelector.AsSelector()},
 	}
 
 	// set cache options

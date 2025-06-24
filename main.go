@@ -27,6 +27,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/klog"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
 	"github.com/IBM/ibm-namespace-scope-operator/v4/controllers"
@@ -49,6 +50,9 @@ func init() {
 func main() {
 	klog.InitFlags(nil)
 	defer klog.Flush()
+
+	ctrl.SetLogger(zap.New(zap.UseDevMode(true))) // Use zap logger
+
 	var metricsAddr string
 	var enableLeaderElection bool
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")

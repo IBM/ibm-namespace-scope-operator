@@ -1377,6 +1377,7 @@ func (r *NamespaceScopeReconciler) mutatingwebhookconfigtoRequest(ctx context.Co
 
 func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := ctrl.NewControllerManagedBy(mgr).
+		Named("NamespaceScope contorller").
 		Owns(&corev1.ConfigMap{}).
 		For(&operatorv1.NamespaceScope{}).
 		Complete(reconcile.Func(r.Reconcile))
@@ -1384,6 +1385,7 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	err = ctrl.NewControllerManagedBy(mgr).
+		Named("NamespaceScope CSV contorller").
 		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&olmv1alpha1.ClusterServiceVersion{}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest),
 			builder.WithPredicates(predicate.Funcs{

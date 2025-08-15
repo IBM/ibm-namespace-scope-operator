@@ -24,14 +24,12 @@ RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o namespace-scope-opera
 FROM docker-na-public.artifactory.swg-devops.com/hyc-cloud-private-edge-docker-local/build-images/ubi9-minimal:latest
 
 ARG VCS_REF
-ARG VCS_URL
 ARG RELEASE_VERSION
 
 LABEL org.label-schema.vendor="IBM" \
   org.label-schema.name="IBM Namespace Scope Operator" \
   org.label-schema.description="This operator automates the extension of operator watch and service account permission scope to other namespaces in an openshift cluster." \
   org.label-schema.vcs-ref=$VCS_REF \
-  org.label-schema.vcs-url=$VCS_URL \
   org.label-schema.license="Licensed Materials - Property of IBM" \
   org.label-schema.schema-version="1.0" \
   name="IBM Namespace Scope Operator" \

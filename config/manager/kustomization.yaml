@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: icr.io/cpopen/ibm-namespace-scope-operator
   newName: icr.io/cpopen/ibm-namespace-scope-operator
-  newTag: 4.3.1
+  newTag: 4.3.2

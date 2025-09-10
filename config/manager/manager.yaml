@@ -46,7 +46,7 @@ spec:
       containers:
       - command:
         - /namespace-scope-operator-manager
-        image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.18
+        image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.19
         imagePullPolicy: IfNotPresent
         name: ibm-namespace-scope-operator
         env:

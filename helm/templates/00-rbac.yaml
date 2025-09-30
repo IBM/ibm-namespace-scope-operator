@@ -14,8 +14,8 @@ metadata:
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
-    {{- if .Values.cpfs.labels }}
-      {{- with .Values.cpfs.labels }}
+    {{- if $.Values.cpfs.labels }}
+      {{- with $.Values.cpfs.labels }}
         {{- toYaml . | nindent 4 }}
       {{- end }}
     {{- end}}
@@ -99,8 +99,8 @@ metadata:
   namespace: {{ $i }}
   labels:
     component-id: {{ $chartName }}
-    {{- if .Values.cpfs.labels }}
-      {{- with .Values.cpfs.labels }}
+    {{- if $.Values.cpfs.labels }}
+      {{- with $.Values.cpfs.labels }}
         {{- toYaml . | nindent 4 }}
       {{- end }}
     {{- end}}

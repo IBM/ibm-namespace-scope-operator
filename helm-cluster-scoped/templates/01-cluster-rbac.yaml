@@ -16,11 +16,8 @@ metadata:
     {{- end}}
 rules:
   - verbs:
-      - create
-      - delete
       - get
       - list
-      - patch
       - update
       - watch
     apiGroups:
@@ -30,7 +27,6 @@ rules:
       - validatingwebhookconfigurations
   - verbs:
       - get
-      - list
     apiGroups:
       - ''
     resources:

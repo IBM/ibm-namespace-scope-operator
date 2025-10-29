@@ -34,8 +34,13 @@ ifdef GOOGLE_APPLICATION_CREDENTIALS
 	gcloud container clusters get-credentials "$(CLUSTER)" --project="$(PROJECT)" --zone="$(ZONE)" || true
 endif
 
-config-docker: get-cluster-credentials
-	@common/scripts/artifactory_config_docker.sh
+config-docker:
+	@echo "Configuring docker for building images"
+	@if [ -z "$(DOCKER_USER)" ] || [ -z "$(DOCKER_PASS)" ]; then \
+			echo "Error: DOCKER_USER and DOCKER_PASS must be defined"; \
+			exit 1; \
+		fi
+	$(CONTAINER_TOOL) login -u $(DOCKER_USER) -p $(DOCKER_PASS) $(DOCKER_REGISTRY); \
 
 FINDFILES=find . \( -path ./.git -o -path ./.github \) -prune -o -type f
 XARGS = xargs -0 ${XARGS_FLAGS}

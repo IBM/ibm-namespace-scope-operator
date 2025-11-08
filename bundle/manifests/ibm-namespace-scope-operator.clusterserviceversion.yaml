@@ -22,7 +22,7 @@ metadata:
         }
       ]
     capabilities: Seamless Upgrades
-    containerImage: icr.io/cpopen/ibm-namespace-scope-operator:4.2.19
+    containerImage: icr.io/cpopen/ibm-namespace-scope-operator:4.2.20
     createdAt: "2025-02-19T00:54:24Z"
     features.operators.openshift.io/disconnected: "true"
     features.operators.openshift.io/fips-compliant: "true"
@@ -31,7 +31,7 @@ metadata:
     features.operators.openshift.io/token-auth-aws: "false"
     features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/token-auth-gcp: "false"
-    olm.skipRange: <4.2.19
+    olm.skipRange: <4.2.20
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     operators.operatorframework.io/builder: operator-sdk-v1.32.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v2
@@ -42,7 +42,7 @@ metadata:
     operatorframework.io/arch.ppc64le: supported
     operatorframework.io/arch.s390x: supported
     operatorframework.io/os.linux: supported
-  name: ibm-namespace-scope-operator.v4.2.19
+  name: ibm-namespace-scope-operator.v4.2.20
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -131,7 +131,7 @@ spec:
                           fieldRef:
                             apiVersion: v1
                             fieldPath: metadata.namespace
-                    image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.19
+                    image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.20
                     imagePullPolicy: IfNotPresent
                     name: ibm-namespace-scope-operator
                     resources:
@@ -251,7 +251,7 @@ spec:
   minKubeVersion: 1.19.0
   provider:
     name: IBM
-  version: 4.2.19
+  version: 4.2.20
   relatedImages:
-    - image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.19
+    - image: icr.io/cpopen/ibm-namespace-scope-operator:4.2.20
       name: IBM_NAMESPACE_SCOPE_OPERATOR_IMAGE

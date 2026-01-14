@@ -430,10 +430,15 @@ func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(ctx context.Context
 		if errors.IsAlreadyExists(err) {
 			return r.updateRuntimeRoleForNSS(ctx, summarizedRules, fromNs, toNs)
 		}
+
 		if errors.IsForbidden(err) {
+			// recored this error in NSS cr
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+			// ignore forbidden error
+			return nil
 		}
 		return err
+
 	}
 
 	return nil
@@ -511,7 +516,10 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 
 			if err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
 				if errors.IsForbidden(err) {
+					// Record event on the NamespaceScope CR
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+					// skip forbidden error: record event on the NamespaceScope and continue
+					return
 				}
 				errorChannel <- err
 				return
@@ -519,7 +527,10 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 
 			if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
 				if errors.IsForbidden(err) {
+					// Record event on the NamespaceScope CR
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
+					// skip forbidden error: record event on the NamespaceScope and continue
+					return
 				}
 				errorChannel <- err
 				return

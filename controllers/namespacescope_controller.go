@@ -131,15 +131,22 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	instance = r.setDefaults(instance)
 
-	klog.Infof("Reconciling NamespaceScope: %s", req.NamespacedName)
+	klog.Infof("Reconciling NamespaceScope: %s (allowSubsetProjection: %v)", req.NamespacedName, instance.Spec.AllowSubsetProjection)
 
 	if err := r.UpdateStatus(ctx, instance); err != nil {
 		klog.Errorf("Failed to update the status of NamespaceScope %s: %v", req.NamespacedName, err)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.PushRbacToNamespace(ctx, instance); err != nil {
+	unprojectedRoles, err := r.PushRbacToNamespace(ctx, instance)
+	if err != nil {
 		klog.Errorf("Failed to generate rbac: %v", err)
+		return ctrl.Result{}, err
+	}
+
+	// Update status with unprojected roles
+	if err := r.UpdateUnprojectedRolesStatus(ctx, instance, unprojectedRoles); err != nil {
+		klog.Errorf("Failed to update unprojected roles status: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -209,6 +216,31 @@ func (r *NamespaceScopeReconciler) UpdateStatus(ctx context.Context, instance *o
 	return nil
 }
 
+func (r *NamespaceScopeReconciler) UpdateUnprojectedRolesStatus(ctx context.Context, instance *operatorv1.NamespaceScope, unprojectedRoles []string) error {
+	// Sort for consistent status updates
+	if len(unprojectedRoles) > 0 {
+		// Remove duplicates and sort
+		uniqueRoles := util.ToStringSlice(util.MakeSet(unprojectedRoles))
+		if !util.StringSliceContentEqual(instance.Status.UnprojectedRoles, uniqueRoles) {
+			instance.Status.UnprojectedRoles = uniqueRoles
+			if err := r.Client.Status().Update(ctx, instance); err != nil {
+				klog.Errorf("Failed to update unprojected roles status for instance %s/%s: %v", instance.Namespace, instance.Name, err)
+				return err
+			}
+			klog.Infof("Updated unprojected roles status for NamespaceScope %s/%s: %v", instance.Namespace, instance.Name, uniqueRoles)
+		}
+	} else if len(instance.Status.UnprojectedRoles) > 0 {
+		// Clear unprojected roles if all roles are now projectable
+		instance.Status.UnprojectedRoles = []string{}
+		if err := r.Client.Status().Update(ctx, instance); err != nil {
+			klog.Errorf("Failed to clear unprojected roles status for instance %s/%s: %v", instance.Namespace, instance.Name, err)
+			return err
+		}
+		klog.Infof("Cleared unprojected roles status for NamespaceScope %s/%s", instance.Namespace, instance.Name)
+	}
+	return nil
+}
+
 func (r *NamespaceScopeReconciler) UpdateConfigMap(ctx context.Context, instance *operatorv1.NamespaceScope) error {
 	cm := &corev1.ConfigMap{}
 	cmName := instance.Spec.ConfigmapName
@@ -273,21 +305,22 @@ func (r *NamespaceScopeReconciler) UpdateConfigMap(ctx context.Context, instance
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope) error {
+func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope) ([]string, error) {
 	fromNs := instance.Namespace
 	saNames, err := r.GetServiceAccountFromNamespace(ctx, instance, fromNs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	operatorNs, err := util.GetOperatorNamespace()
 	if err != nil {
 		klog.Error("get operator namespace failed: ", err)
-		return err
+		return nil, err
 	}
 
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, len(instance.Status.ValidatedMembers))
+	unprojectedChannel := make(chan []string, len(instance.Status.ValidatedMembers))
 
 	for _, toNs := range instance.Status.ValidatedMembers {
 		if toNs == operatorNs {
@@ -297,8 +330,17 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 		wg.Add(1)
 		go func(toNs string) {
 			defer wg.Done()
-			if err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs); err != nil {
-				errorChannel <- err
+			unprojected, err := r.generateRBACToNamespace(ctx, instance, saNames, fromNs, toNs)
+			if err != nil {
+				if !instance.Spec.AllowSubsetProjection {
+					errorChannel <- err
+					return
+				}
+				// With allowSubsetProjection, log error but continue
+				klog.Warningf("Error generating RBAC to namespace %s (allowSubsetProjection enabled, continuing): %v", toNs, err)
+			}
+			if len(unprojected) > 0 {
+				unprojectedChannel <- unprojected
 			}
 		}(toNs)
 	}
@@ -306,13 +348,24 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 	// Wait for all RBAC generation to finish
 	wg.Wait()
 	close(errorChannel)
+	close(unprojectedChannel)
 
-	// Return the first error encountered, if any
-	if len(errorChannel) > 0 {
-		return <-errorChannel
+	// Collect all unprojected roles
+	var allUnprojected []string
+	for unprojected := range unprojectedChannel {
+		allUnprojected = append(allUnprojected, unprojected...)
 	}
 
-	return nil
+	// Return the first error encountered, if any (only when allowSubsetProjection is false)
+	if len(errorChannel) > 0 {
+		return allUnprojected, <-errorChannel
+	}
+
+	if len(allUnprojected) > 0 {
+		klog.Infof("Successfully projected Roles with %d unprojected Roles tracked in status", len(allUnprojected))
+	}
+
+	return allUnprojected, nil
 }
 
 func (r *NamespaceScopeReconciler) CreateRuntimeRoleToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, toNs string, summarizedRules []rbacv1.PolicyRule) error {
@@ -432,10 +485,14 @@ func (r *NamespaceScopeReconciler) generateRuntimeRoleForNSS(ctx context.Context
 		}
 
 		if errors.IsForbidden(err) {
-			// recored this error in NSS cr
+			// Record this error in NSS CR
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-			// ignore forbidden error
-			return nil
+			if instance.Spec.AllowSubsetProjection {
+				// Ignore forbidden error when allowSubsetProjection is enabled
+				return nil
+			}
+			// When allowSubsetProjection is false, propagate the error
+			return err
 		}
 		return err
 
@@ -488,7 +545,7 @@ func (r *NamespaceScopeReconciler) updateRuntimeRoleForNSS(ctx context.Context, 
 	return nil
 }
 
-func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, saNames []string, fromNs, toNs string) ([]string, error) {
 	configmapValue := util.GetFirstNCharacter(instance.Spec.ConfigmapName+"-"+instance.Namespace, 63)
 	labels := map[string]string{
 		"namespace-scope-configmap":    configmapValue,
@@ -499,6 +556,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, len(saNames))
+	unprojectedChannel := make(chan []string, len(saNames))
 
 	for _, sa := range saNames {
 		wg.Add(1)
@@ -514,22 +572,37 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 
 			klog.V(2).Infof("Roles waiting to be copied for SA %s: %v", sa, roleList)
 
-			if err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
+			unprojected, err := r.CreateRole(ctx, roleList, labels, sa, fromNs, toNs, instance.Spec.AllowSubsetProjection)
+			if err != nil {
 				if errors.IsForbidden(err) {
 					// Record event on the NamespaceScope CR
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource roles in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-					// skip forbidden error: record event on the NamespaceScope and continue
+					if instance.Spec.AllowSubsetProjection {
+						// skip forbidden error when allowSubsetProjection is enabled: record event and continue
+						return
+					}
+					// When allowSubsetProjection is false, propagate the error
+					errorChannel <- err
 					return
 				}
 				errorChannel <- err
 				return
+			}
+			
+			if len(unprojected) > 0 {
+				unprojectedChannel <- unprojected
 			}
 
 			if err := r.CreateRoleBinding(ctx, roleList, labels, sa, fromNs, toNs); err != nil {
 				if errors.IsForbidden(err) {
 					// Record event on the NamespaceScope CR
 					r.Recorder.Eventf(instance, corev1.EventTypeWarning, "Forbidden", "cannot create resource rolebindings in API group rbac.authorization.k8s.io in the namespace %s. Please authorize service account ibm-namespace-scope-operator namespace admin permission of %s namespace", toNs, toNs)
-					// skip forbidden error: record event on the NamespaceScope and continue
+					if instance.Spec.AllowSubsetProjection {
+						// skip forbidden error when allowSubsetProjection is enabled: record event and continue
+						return
+					}
+					// When allowSubsetProjection is false, propagate the error
+					errorChannel <- err
 					return
 				}
 				errorChannel <- err
@@ -540,12 +613,19 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 
 	wg.Wait()
 	close(errorChannel)
+	close(unprojectedChannel)
 
-	if len(errorChannel) > 0 {
-		return <-errorChannel
+	// Collect all unprojected roles
+	var allUnprojected []string
+	for unprojected := range unprojectedChannel {
+		allUnprojected = append(allUnprojected, unprojected...)
 	}
 
-	return nil
+	if len(errorChannel) > 0 {
+		return allUnprojected, <-errorChannel
+	}
+
+	return allUnprojected, nil
 }
 
 func (r *NamespaceScopeReconciler) GetRolesFromNamespace(ctx context.Context, instance *operatorv1.NamespaceScope, namespace string) ([]rbacv1.Role, error) {
@@ -634,32 +714,54 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 	return util.ToStringSlice(util.MakeSet(roleNameList)), nil
 }
 
-func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string) error {
+func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string, allowSubsetProjection bool) ([]string, error) {
 	// Get the permissions that NamespaceScope Operator has from the toNs
 	nssManagedRole := &rbacv1.Role{}
 	if err := r.Reader.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
 		if errors.IsNotFound(err) {
 			klog.Errorf("Role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
-			return err
+			return nil, err
 		}
 		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
-		return err
+		return nil, err
 	}
+
+	var unprojectedRoles []string
 
 	for _, roleName := range roleNames {
 		originalRole := &rbacv1.Role{}
 		if err := r.Reader.Get(ctx, types.NamespacedName{Name: roleName, Namespace: fromNs}, originalRole); err != nil {
 			if errors.IsNotFound(err) {
 				klog.Errorf("role %s not found in namespace %s: %v", roleName, fromNs, err)
+				if allowSubsetProjection {
+					unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: role not found", fromNs, roleName))
+					continue
+				}
 				continue
 			}
 			klog.Errorf("Failed to get role %s in namespace %s: %v", roleName, fromNs, err)
-			return err
+			if allowSubsetProjection {
+				unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to get role", fromNs, roleName))
+				continue
+			}
+			return unprojectedRoles, err
 		}
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
+		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
+		
+		if !canProject {
+			if allowSubsetProjection {
+				klog.Infof("Role %s in namespace %s cannot be projected to %s due to insufficient permissions (allowSubsetProjection enabled, skipping)", roleName, fromNs, toNs)
+				unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: insufficient permissions", fromNs, roleName))
+				continue
+			} else {
+				klog.Warningf("Role %s has empty rules after filtering and cannot be projected to namespace %s", roleName, toNs)
+				return unprojectedRoles, fmt.Errorf("role %s cannot be projected due to insufficient permissions", roleName)
+			}
+		}
+
 		role := &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -672,16 +774,24 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 			if errors.IsAlreadyExists(err) {
 				if err := r.Client.Update(ctx, role); err != nil {
 					klog.Errorf("Failed to update role %s/%s: %v", namespace, name, err)
-					return err
+					if allowSubsetProjection {
+						unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to update", fromNs, roleName))
+						continue
+					}
+					return unprojectedRoles, err
 				}
 				continue
 			}
 			klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
-			return err
+			if allowSubsetProjection {
+				unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to create", fromNs, roleName))
+				continue
+			}
+			return unprojectedRoles, err
 		}
 		klog.Infof("Created role %s/%s", namespace, name)
 	}
-	return nil
+	return unprojectedRoles, nil
 }
 
 func (r *NamespaceScopeReconciler) DeleteRole(ctx context.Context, labels map[string]string, toNs string) error {
@@ -927,7 +1037,7 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, v := range verbs {
@@ -990,7 +1100,9 @@ func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1
 		klog.Infof("Role %s has been appended with role %s in namespace %s", roleName, constant.NamespaceScopeManagedPrefix+fromNs, toNs)
 	}
 
-	return orgRule
+	// Return false if no rules remain after filtering (cannot project)
+	canProject := len(orgRule) > 0
+	return orgRule, canProject
 }
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(ctx context.Context, instance *operatorv1.NamespaceScope) ([]string, error) {

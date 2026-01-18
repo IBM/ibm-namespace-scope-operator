@@ -337,7 +337,7 @@ func (r *NamespaceScopeReconciler) PushRbacToNamespace(ctx context.Context, inst
 					return
 				}
 				// With allowSubsetProjection, log error but continue
-				klog.Warningf("Error generating RBAC to namespace %s (allowSubsetProjection enabled, continuing): %v", toNs, err)
+				klog.Warningf("Warning, some permissions were not projected to namespace %s (allowSubsetProjection enabled), see status for complete list: %v", toNs, err)
 			}
 			if len(unprojected) > 0 {
 				unprojectedChannel <- unprojected

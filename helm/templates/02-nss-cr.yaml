@@ -13,6 +13,7 @@ metadata:
   name: common-service
   namespace: {{ .Values.global.operatorNamespace }}
 spec:
+  allowSubsetProjection: {{ .Values.cpfs.allowSubsetProjection | default "false" }}
   csvInjector:
     enable: true
   license:

@@ -45,6 +45,12 @@ type NamespaceScopeSpec struct {
 
 	// +optional
 	License LicenseAcceptance `json:"license,omitempty"`
+
+	// AllowSubsetProjection enables partial Role projection when NSS lacks permissions for some Roles.
+	// When true, NSS will project Roles it can and skip those it cannot, updating status with unprojected Roles.
+	// When false (default), NSS requires full permissions and fails if any Role cannot be projected.
+	// +optional
+	AllowSubsetProjection bool `json:"allowSubsetProjection,omitempty"`
 }
 
 // CSVInjector manages if operator will insert labels and WATCH_NAMESPACES in CSV automatically
@@ -61,6 +67,11 @@ type NamespaceScopeStatus struct {
 	PatchedCSVList     []string `json:"patchedCSVList,omitempty"`
 	ManagedWebhookList []string `json:"managedWebhookList,omitempty"`
 	PatchedWebhookList []string `json:"patchedWebhookList,omitempty"`
+
+	// UnprojectedRoles contains Roles that could not be projected due to insufficient permissions.
+	// Only populated when AllowSubsetProjection is enabled.
+	// Format: "namespace/rolename" or "namespace/rolename: reason"
+	UnprojectedRoles []string `json:"unprojectedRoles,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -8,4 +8,5 @@ global:
 cpfs:
   imageRegistryNamespaceOperator: cpopen
   imageRegistryNamespaceOperand: cpopen/cpfs
+  allowSubsetProjection: false
   labels:

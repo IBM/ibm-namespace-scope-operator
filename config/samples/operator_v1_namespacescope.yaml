@@ -3,6 +3,11 @@ kind: NamespaceScope
 metadata:
   name: namespacescope
 spec:
+  # Enable partial Role projection when NSS lacks permissions for some Roles
+  # When true, NSS will project Roles it can and skip those it cannot, updating status with unprojected Roles
+  # When false (default), NSS requires full permissions and fails if any Role cannot be projected
+  allowSubsetProjection: false
+
   # Namespaces that are part of this scope
   namespaceMembers:
   - ibm-common-services

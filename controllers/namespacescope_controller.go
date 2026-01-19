@@ -775,7 +775,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 				if err := r.Client.Update(ctx, role); err != nil {
 					klog.Errorf("Failed to update role %s/%s: %v", namespace, name, err)
 					if allowSubsetProjection {
-						unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to update", fromNs, roleName))
+						unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to update from namespace %s", toNs, roleName, fromNs))
 						continue
 					}
 					return unprojectedRoles, err
@@ -784,7 +784,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 			}
 			klog.Errorf("Failed to create role %s/%s: %v", namespace, name, err)
 			if allowSubsetProjection {
-				unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to create", fromNs, roleName))
+				unprojectedRoles = append(unprojectedRoles, fmt.Sprintf("%s/%s: failed to create from namespace %s", toNs, roleName, fromNs))
 				continue
 			}
 			return unprojectedRoles, err

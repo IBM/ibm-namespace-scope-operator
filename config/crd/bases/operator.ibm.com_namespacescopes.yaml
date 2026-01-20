@@ -41,6 +41,12 @@ spec:
           spec:
             description: NamespaceScopeSpec defines the desired state of NamespaceScope
             properties:
+              allowSubsetProjection:
+                description: |-
+                  AllowSubsetProjection enables partial Role projection when NSS lacks permissions for some Roles.
+                  When true, NSS will project Roles it can and skip those it cannot, updating status with unprojected Roles.
+                  When false (default), NSS requires full permissions and fails if any Role cannot be projected.
+                type: boolean
               configmapName:
                 description: ConfigMap name that will contain the list of namespaces
                   to be watched
@@ -114,6 +120,14 @@ spec:
                   type: string
                 type: array
               patchedWebhookList:
+                items:
+                  type: string
+                type: array
+              unprojectedRoles:
+                description: |-
+                  UnprojectedRoles contains Roles that could not be projected due to insufficient permissions.
+                  Only populated when AllowSubsetProjection is enabled.
+                  Format: "namespace/rolename" or "namespace/rolename: reason"
                 items:
                   type: string
                 type: array

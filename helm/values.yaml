@@ -9,4 +9,5 @@ cpfs:
   imageRegistryNamespaceOperator: cpopen
   imageRegistryNamespaceOperand: cpopen/cpfs
   allowSubsetProjection: false
+  configmapName: namespace-scope
   labels:

@@ -14,6 +14,7 @@ metadata:
   namespace: {{ .Values.global.operatorNamespace }}
 spec:
   allowSubsetProjection: {{ .Values.cpfs.allowSubsetProjection | default "false" }}
+  configmapName: {{ .Values.cpfs.configmapName | default "namespace-scope" }}
   csvInjector:
     enable: true
   license:

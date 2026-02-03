@@ -8,7 +8,6 @@ rules:
       - delete
       - get
       - list
-      - patch
       - update
       - watch
       - deletecollection
@@ -19,22 +18,27 @@ rules:
       - roles
   - verbs:
       - create
-      - delete
       - get
       - list
-      - patch
       - update
       - watch
     apiGroups:
       - ''
     resources:
       - configmaps
+  - verbs:
+      - delete
+      - get
+      - list
+      - watch
+    apiGroups:
+      - ''
+    resources:
       - pods
   - verbs:
       - get
       - list
       - patch
-      - update
       - watch
     apiGroups:
       - operators.coreos.com
@@ -53,14 +57,10 @@ rules:
       - namespacescopes/status
       - namespacescopes/finalizers
   - verbs:
-      - delete
       - get
-      - list
       - patch
       - update
       - watch
-      - deletecollection
-      - create
     apiGroups:
       - apps
     resources:
@@ -69,7 +69,6 @@ rules:
       - statefulsets
   - verbs:
       - get
-      - list
     apiGroups:
       - ''
     resources:
@@ -82,11 +81,8 @@ metadata:
 rules:
 # manage mutation webhook configuration
   - verbs:
-      - create
-      - delete
       - get
       - list
-      - patch
       - update
       - watch
     apiGroups:
@@ -96,7 +92,6 @@ rules:
       - validatingwebhookconfigurations
   - verbs:
       - get
-      - list
     apiGroups:
       - ''
     resources:

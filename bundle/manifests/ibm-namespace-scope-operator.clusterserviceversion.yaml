@@ -68,11 +68,8 @@ spec:
                 - mutatingwebhookconfigurations
                 - validatingwebhookconfigurations
               verbs:
-                - create
-                - delete
                 - get
                 - list
-                - patch
                 - update
                 - watch
             - apiGroups:
@@ -81,7 +78,6 @@ spec:
                 - namespaces
               verbs:
                 - get
-                - list
           serviceAccountName: ibm-namespace-scope-operator
       deployments:
         - label:
@@ -166,7 +162,6 @@ spec:
                 - delete
                 - get
                 - list
-                - patch
                 - update
                 - watch
                 - deletecollection
@@ -174,14 +169,20 @@ spec:
                 - ""
               resources:
                 - configmaps
-                - pods
               verbs:
                 - create
+                - get
+                - list
+                - update
+                - watch
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+              verbs:
                 - delete
                 - get
                 - list
-                - patch
-                - update
                 - watch
             - apiGroups:
                 - operators.coreos.com
@@ -191,7 +192,6 @@ spec:
                 - get
                 - list
                 - patch
-                - update
                 - watch
             - apiGroups:
                 - operator.ibm.com
@@ -212,21 +212,16 @@ spec:
                 - daemonsets
                 - statefulsets
               verbs:
-                - delete
                 - get
-                - list
                 - patch
                 - update
                 - watch
-                - deletecollection
-                - create
             - apiGroups:
                 - ""
               resources:
                 - serviceaccounts
               verbs:
                 - get
-                - list
           serviceAccountName: ibm-namespace-scope-operator
     strategy: deployment
   installModes:

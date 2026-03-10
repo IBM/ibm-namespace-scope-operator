@@ -71,18 +71,18 @@ rules:
       - namespacescopes/status
       - namespacescopes/finalizers
   - verbs:
-      - delete
       - get
-      - list
-      - patch
       - update
-      - watch
-      - deletecollection
-      - create
     apiGroups:
       - apps
     resources:
       - deployments
+  - verbs:
+      - get
+      - patch
+    apiGroups:
+      - apps
+    resources:
       - daemonsets
       - statefulsets
   - verbs:

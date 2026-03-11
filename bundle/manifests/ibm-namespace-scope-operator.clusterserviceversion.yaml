@@ -209,17 +209,17 @@ spec:
                 - apps
               resources:
                 - deployments
+              verbs:
+                - get
+                - update
+            - apiGroups:
+                - apps
+              resources:
                 - daemonsets
                 - statefulsets
               verbs:
-                - delete
                 - get
-                - list
                 - patch
-                - update
-                - watch
-                - deletecollection
-                - create
             - apiGroups:
                 - ""
               resources:

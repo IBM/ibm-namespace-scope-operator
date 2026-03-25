@@ -111,6 +111,22 @@ spec:
           imagePullPolicy: IfNotPresent
           terminationMessagePolicy: File
           image: {{ .Values.cpfs.imagePullPrefix | default .Values.global.imagePullPrefix }}/{{ .Values.cpfs.imageRegistryNamespaceOperator }}/ibm-namespace-scope-operator:4.3.5
+          ports:
+          - containerPort: 8080
+            name: metrics
+            protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
       serviceAccount: ibm-namespace-scope-operator
       dnsPolicy: ClusterFirst
   strategy:

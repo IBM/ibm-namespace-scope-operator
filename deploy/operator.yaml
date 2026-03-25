@@ -31,4 +31,28 @@ spec:
         - --enable-leader-election=false
         image: quay.io/opencloudio/ibm-namespace-scope-operator:latest
         name: manager
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 120
+          timeoutSeconds: 10
+          periodSeconds: 60
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          timeoutSeconds: 20
+          periodSeconds: 20
+          failureThreshold: 10
       terminationGracePeriodSeconds: 10

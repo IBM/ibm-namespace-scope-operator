@@ -142,6 +142,29 @@ spec:
                         cpu: 100m
                         ephemeral-storage: 256Mi
                         memory: 200Mi
+                    ports:
+                      - containerPort: 8080
+                        name: metrics
+                        protocol: TCP
+                      - containerPort: 8081
+                        name: health
+                        protocol: TCP
+                    livenessProbe:
+                      failureThreshold: 10
+                      httpGet:
+                        path: /healthz
+                        port: 8081
+                      initialDelaySeconds: 120
+                      periodSeconds: 60
+                      timeoutSeconds: 10
+                    readinessProbe:
+                      failureThreshold: 10
+                      httpGet:
+                        path: /readyz
+                        port: 8081
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                      timeoutSeconds: 20
                     securityContext:
                       allowPrivilegeEscalation: false
                       capabilities:

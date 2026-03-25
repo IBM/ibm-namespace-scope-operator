@@ -36,16 +36,23 @@ spec:
         - containerPort: 8080
           name: metrics
           protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
         livenessProbe:
           httpGet:
-            path: /metrics
-            port: 8080
-          initialDelaySeconds: 15
-          periodSeconds: 20
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 120
+          timeoutSeconds: 10
+          periodSeconds: 60
+          failureThreshold: 10
         readinessProbe:
           httpGet:
-            path: /metrics
-            port: 8080
+            path: /readyz
+            port: 8081
           initialDelaySeconds: 5
-          periodSeconds: 10
+          timeoutSeconds: 20
+          periodSeconds: 20
+          failureThreshold: 10
       terminationGracePeriodSeconds: 10

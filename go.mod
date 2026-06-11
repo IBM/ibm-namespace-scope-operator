@@ -1,6 +1,6 @@
 module github.com/IBM/ibm-namespace-scope-operator/v4
 
-go 1.25.7
+go 1.25.11
 
 require (
 	github.com/deckarep/golang-set v1.7.1

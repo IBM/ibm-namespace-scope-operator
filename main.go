@@ -90,6 +90,7 @@ func main() {
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorderFor("NamespaceScope"),
 		Scheme:   mgr.GetScheme(),
+		Config:   mgr.GetConfig(),
 	}).SetupWithManager(mgr); err != nil {
 		klog.Error(err, "unable to create controller", "controller", "NamespaceScope")
 		os.Exit(1)

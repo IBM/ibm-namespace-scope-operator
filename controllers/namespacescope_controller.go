@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
@@ -63,9 +64,10 @@ import (
 type NamespaceScopeReconciler struct {
 	client.Reader
 	client.Client
-	Recorder record.EventRecorder
-	Scheme   *runtime.Scheme
-	Config   *rest.Config
+	Recorder  record.EventRecorder
+	Scheme    *runtime.Scheme
+	Config    *rest.Config
+	hasOLMAPI bool
 }
 
 func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -588,7 +590,7 @@ func (r *NamespaceScopeReconciler) generateRBACToNamespace(ctx context.Context, 
 				errorChannel <- err
 				return
 			}
-			
+
 			if len(unprojected) > 0 {
 				unprojectedChannel <- unprojected
 			}
@@ -750,7 +752,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
 		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
-		
+
 		if !canProject {
 			if allowSubsetProjection {
 				klog.Infof("Role %s in namespace %s cannot be projected to %s due to insufficient permissions (allowSubsetProjection enabled, skipping)", roleName, fromNs, toNs)
@@ -1156,6 +1158,11 @@ func (r *NamespaceScopeReconciler) CSVReconcile(ctx context.Context, req ctrl.Re
 
 	klog.Infof("Reconciling NamespaceScope: %s for patching operator CSV", req.NamespacedName)
 
+	if !r.hasOLMAPI {
+		klog.V(1).Infof("Skipping CSV reconciliation for NamespaceScope %s because API group operators.coreos.com/v1alpha1 is not available", req.NamespacedName)
+		return ctrl.Result{RequeueAfter: 180 * time.Second}, nil
+	}
+
 	csvList := &olmv1alpha1.ClusterServiceVersionList{}
 	configmapName := instance.Spec.ConfigmapName
 	if err := r.Client.List(ctx, csvList); err != nil {
@@ -1507,10 +1514,26 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	err = ctrl.NewControllerManagedBy(mgr).
+	csvControllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		Named("NamespaceScope CSV contorller").
-		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&olmv1alpha1.ClusterServiceVersion{}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest),
+		For(&operatorv1.NamespaceScope{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+
+	r.hasOLMAPI = false
+	discoveryClient, discoveryErr := discovery.NewDiscoveryClientForConfig(r.Config)
+	if discoveryErr != nil {
+		klog.Warningf("Unable to create discovery client for OLM API detection, skipping ClusterServiceVersion watch: %v", discoveryErr)
+	} else if _, serverResourceErr := discoveryClient.ServerResourcesForGroupVersion("operators.coreos.com/v1alpha1"); serverResourceErr != nil {
+		if errors.IsNotFound(serverResourceErr) {
+			klog.Infof("Skipping ClusterServiceVersion watch because API group version operators.coreos.com/v1alpha1 is not available")
+		} else {
+			klog.Warningf("Unable to discover operators.coreos.com/v1alpha1, skipping ClusterServiceVersion watch: %v", serverResourceErr)
+		}
+	} else {
+		r.hasOLMAPI = true
+	}
+
+	if r.hasOLMAPI {
+		csvControllerBuilder = csvControllerBuilder.Watches(&olmv1alpha1.ClusterServiceVersion{}, handler.EnqueueRequestsFromMapFunc(r.csvtoRequest),
 			builder.WithPredicates(predicate.Funcs{
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					// Evaluates to false if the object has been confirmed deleted.
@@ -1524,7 +1547,10 @@ func (r *NamespaceScopeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				CreateFunc: func(e event.CreateEvent) bool {
 					return true
 				},
-			})).
+			}))
+	}
+
+	err = csvControllerBuilder.
 		Watches(&admissionv1.ValidatingWebhookConfiguration{}, handler.EnqueueRequestsFromMapFunc(r.validatingwebhookconfigtoRequest),
 			builder.WithPredicates(predicate.Funcs{
 				DeleteFunc: func(e event.DeleteEvent) bool {

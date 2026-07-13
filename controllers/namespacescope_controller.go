@@ -131,14 +131,17 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	instance = r.setDefaults(instance)
-
 	klog.Infof("Reconciling NamespaceScope: %s (allowSubsetProjection: %v)", req.NamespacedName, instance.Spec.AllowSubsetProjection)
 
 	if err := r.UpdateStatus(ctx, instance); err != nil {
 		klog.Errorf("Failed to update the status of NamespaceScope %s: %v", req.NamespacedName, err)
 		return ctrl.Result{}, err
 	}
+
+	// setDefaults is called after UpdateStatus because Status().Update() overwrites the in-memory
+	// instance with the stored API object, which may have Spec.ConfigmapName as empty string
+	// (not yet persisted), causing invalid label values like "-<namespace>".
+	instance = r.setDefaults(instance)
 
 	unprojectedRoles, err := r.PushRbacToNamespace(ctx, instance)
 	if err != nil {

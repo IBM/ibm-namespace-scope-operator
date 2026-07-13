@@ -161,5 +161,5 @@ func GetFirstNCharacter(str string, n int) string {
 	if n >= len(str) {
 		return str
 	}
-	return str[:n]
+	return strings.TrimRight(str[:n], "-_.")
 }

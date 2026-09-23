@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"testing"
 
+	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -233,7 +234,10 @@ func newNamespaceScopeTestClient(t *testing.T, objects ...client.Object) client.
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add core scheme: %v", err)
 	}
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	if err := operatorv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add operator scheme: %v", err)
+	}
+	return fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&operatorv1.NamespaceScope{}).WithObjects(objects...).Build()
 }
 
 func daemonSetRestartObjects() (*corev1.Pod, *appsv1.DaemonSet, *corev1.ConfigMap) {
@@ -288,3 +292,78 @@ func assertDaemonSetNotRestarted(t *testing.T, ctx context.Context, c client.Cli
 		t.Fatalf("expected DaemonSet to remain unchanged, got annotations %#v", updated.Spec.Template.Annotations)
 	}
 }
+
+func TestRecordOperationTimingAndStatusSuccess(t *testing.T) {
+	ctx := context.Background()
+	nss := &operatorv1.NamespaceScope{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-nss",
+			Namespace: "test-ns",
+		},
+	}
+	r, c := newNamespaceScopeTestReconciler(t, nss)
+
+	startTime := metav1.Now()
+	r.recordOperationTimingAndStatus(ctx, nss, startTime, "Completed", "Reconcile operation completed successfully", nil)
+
+	updated := &operatorv1.NamespaceScope{}
+	if err := c.Get(ctx, types.NamespacedName{Name: nss.Name, Namespace: nss.Namespace}, updated); err != nil {
+		t.Fatalf("failed to get updated NamespaceScope: %v", err)
+	}
+
+	if updated.Status.Status != "Completed" {
+		t.Fatalf("expected status to be 'Completed', got %q", updated.Status.Status)
+	}
+
+	if len(updated.Status.ReconcileHistory) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(updated.Status.ReconcileHistory))
+	}
+
+	if len(updated.Status.OperationTiming) != 1 {
+		t.Fatalf("expected 1 operationTiming entry, got %d", len(updated.Status.OperationTiming))
+	}
+
+	timing := updated.Status.OperationTiming[0]
+	if timing.Phase != "Completed" {
+		t.Errorf("expected timing phase to be 'Completed', got %q", timing.Phase)
+	}
+	if timing.TotalDuration == "" {
+		t.Error("expected non-empty totalDuration")
+	}
+}
+
+func TestRecordOperationTimingAndStatusFailureAndRollingLimit(t *testing.T) {
+	ctx := context.Background()
+	nss := &operatorv1.NamespaceScope{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-nss",
+			Namespace: "test-ns",
+		},
+	}
+	r, c := newNamespaceScopeTestReconciler(t, nss)
+
+	// Simulate 6 operations to test rolling limit of 5 for timing and 3 for history
+	for i := 1; i <= 6; i++ {
+		startTime := metav1.Now()
+		errMsg := stderrors.New("reconcile error")
+		r.recordOperationTimingAndStatus(ctx, nss, startTime, "Failed", "Operation failed", errMsg)
+	}
+
+	updated := &operatorv1.NamespaceScope{}
+	if err := c.Get(ctx, types.NamespacedName{Name: nss.Name, Namespace: nss.Namespace}, updated); err != nil {
+		t.Fatalf("failed to get updated NamespaceScope: %v", err)
+	}
+
+	if updated.Status.Status != "Failed" {
+		t.Fatalf("expected status to be 'Failed', got %q", updated.Status.Status)
+	}
+
+	if len(updated.Status.ReconcileHistory) != 3 {
+		t.Fatalf("expected max 3 reconcileHistory entries, got %d", len(updated.Status.ReconcileHistory))
+	}
+
+	if len(updated.Status.OperationTiming) != 5 {
+		t.Fatalf("expected max 5 operationTiming entries, got %d", len(updated.Status.OperationTiming))
+	}
+}
+

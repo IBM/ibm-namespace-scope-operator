@@ -115,6 +115,54 @@ func (c selfSubjectDaemonSetPermissionChecker) Check(ctx context.Context, namesp
 	return daemonSetAccessResult{allowed: true}, nil
 }
 
+func (r *NamespaceScopeReconciler) recordOperationTimingAndStatus(ctx context.Context, instance *operatorv1.NamespaceScope, startTime metav1.Time, phase, endMessage string, reconcileErr error) {
+	endTime := metav1.Now()
+	duration := endTime.Sub(startTime.Time).Round(time.Second).String()
+
+	// Re-fetch instance before updating status to minimize conflict risk
+	latestInstance := &operatorv1.NamespaceScope{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latestInstance); err != nil {
+		klog.Errorf("Failed to get latest NamespaceScope %s/%s for operationTiming update: %v", instance.Namespace, instance.Name, err)
+		return
+	}
+
+	// 1. Update status and reconcileHistory
+	latestInstance.Status.Status = phase
+
+	if reconcileErr != nil {
+		newErrorMsg := fmt.Sprintf("%s %s", endTime.UTC().Format("2006-01-02T15:04:05.000Z"), reconcileErr.Error())
+		newHistory := append([]string{newErrorMsg}, latestInstance.Status.ReconcileHistory...)
+		if len(newHistory) > 3 {
+			newHistory = newHistory[:3]
+		}
+		latestInstance.Status.ReconcileHistory = newHistory
+	} else if phase == "Completed" {
+		successMsg := fmt.Sprintf("%s The last reconciliation was completed successfully.", endTime.UTC().Format("2006-01-02T15:04:05.000Z"))
+		newHistory := append([]string{successMsg}, latestInstance.Status.ReconcileHistory...)
+		if len(newHistory) > 3 {
+			newHistory = newHistory[:3]
+		}
+		latestInstance.Status.ReconcileHistory = newHistory
+	}
+
+	// 2. Update operationTiming (latest 5 entries, prepended)
+	newEntry := operatorv1.OperationTimingEntry{
+		StartTime:     startTime,
+		EndTime:       endTime,
+		TotalDuration: duration,
+		Phase:         phase,
+	}
+	updatedTiming := append([]operatorv1.OperationTimingEntry{newEntry}, latestInstance.Status.OperationTiming...)
+	if len(updatedTiming) > 5 {
+		updatedTiming = updatedTiming[:5]
+	}
+	latestInstance.Status.OperationTiming = updatedTiming
+
+	if err := r.Client.Status().Update(ctx, latestInstance); err != nil {
+		klog.Errorf("Failed to update operationTiming and status for NamespaceScope %s/%s: %v", latestInstance.Namespace, latestInstance.Name, err)
+	}
+}
+
 func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Fetch the NamespaceScope instance
 	instance := &operatorv1.NamespaceScope{}
@@ -148,8 +196,11 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
+	startTime := metav1.Now()
+
 	nssObjectList := &operatorv1.NamespaceScopeList{}
 	if err := r.Client.List(ctx, nssObjectList); err != nil {
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", "Failed to list NamespaceScope resources", err)
 		return ctrl.Result{}, err
 	}
 
@@ -172,6 +223,7 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Add finalizer for this instance
 	if !util.Contains(instance.GetFinalizers(), constant.NamespaceScopeFinalizer) {
 		if err := r.addFinalizer(ctx, instance); err != nil {
+			r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", "Failed to add finalizer", err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -180,6 +232,7 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if err := r.UpdateStatus(ctx, instance); err != nil {
 		klog.Errorf("Failed to update the status of NamespaceScope %s: %v", req.NamespacedName, err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to update status: %v", err), err)
 		return ctrl.Result{}, err
 	}
 
@@ -191,28 +244,33 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	unprojectedRoles, err := r.PushRbacToNamespace(ctx, instance)
 	if err != nil {
 		klog.Errorf("Failed to generate rbac: %v", err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to generate rbac: %v", err), err)
 		return ctrl.Result{}, err
 	}
 
 	// Update status with unprojected roles
 	if err := r.UpdateUnprojectedRolesStatus(ctx, instance, unprojectedRoles); err != nil {
 		klog.Errorf("Failed to update unprojected roles status: %v", err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to update unprojected roles status: %v", err), err)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.DeleteRbacFromUnmanagedNamespace(ctx, instance); err != nil {
 		klog.Errorf("Failed to delete rbac: %v", err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to delete rbac: %v", err), err)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.UpdateConfigMap(ctx, instance); err != nil {
 		klog.Errorf("Failed to update configmap: %v", err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to update configmap: %v", err), err)
 		return ctrl.Result{}, err
 	}
 
 	reg, err := regexp.Compile(`^nss-(managed|runtime)-role-from.*`)
 	if err != nil {
 		klog.Errorf("Failed to compile regular expression: %v", err)
+		r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to compile regular expression: %v", err), err)
 		return ctrl.Result{}, err
 	}
 	for _, namespaceMember := range instance.Spec.NamespaceMembers {
@@ -225,11 +283,13 @@ func (r *NamespaceScopeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			if err := r.CreateRuntimeRoleToNamespace(ctx, instance, namespaceMember, summarizedRules); err != nil {
 				klog.Infof("Failed to create runtime role: %v", err)
+				r.recordOperationTimingAndStatus(ctx, instance, startTime, "Failed", fmt.Sprintf("Failed to create runtime role: %v", err), err)
 				return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 			}
 		}
 	}
 
+	r.recordOperationTimingAndStatus(ctx, instance, startTime, "Completed", "Reconcile operation completed successfully", nil)
 	klog.Infof("Finished reconciling NamespaceScope: %s", req.NamespacedName)
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }

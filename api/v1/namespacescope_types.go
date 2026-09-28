@@ -59,6 +59,23 @@ type CSVInjector struct {
 	Enable bool `json:"enable"`
 }
 
+// OperationTimingEntry records timing information for an operation
+type OperationTimingEntry struct {
+	StartTime      metav1.Time      `json:"startTime"`
+	EndTime        metav1.Time      `json:"endTime"`
+	TotalDuration  string           `json:"totalDuration"`
+	Phase          string           `json:"phase"`
+	DependencyTime []DependencyTime `json:"dependencyTime,omitempty"`
+}
+
+// DependencyTime records timing information for a dependency
+type DependencyTime struct {
+	Component          string      `json:"component"`
+	StartTime          metav1.Time `json:"startTime"`
+	ReadyTime          metav1.Time `json:"readyTime"`
+	DependencyDuration string      `json:"dependencyDuration"`
+}
+
 // NamespaceScopeStatus defines the observed state of NamespaceScope
 type NamespaceScopeStatus struct {
 	ValidatedMembers []string `json:"validatedMembers,omitempty"`
@@ -72,6 +89,18 @@ type NamespaceScopeStatus struct {
 	// Only populated when AllowSubsetProjection is enabled.
 	// Format: "namespace/rolename" or "namespace/rolename: reason"
 	UnprojectedRoles []string `json:"unprojectedRoles,omitempty"`
+
+	// Status represents the status of the current operation (e.g. InProgress, Completed, Failed).
+	// +optional
+	Status string `json:"status,omitempty"`
+
+	// ReconcileHistory contains up to 3 recent reconcile status messages/errors.
+	// +optional
+	ReconcileHistory []string `json:"reconcileHistory,omitempty"`
+
+	// OperationTiming contains the latest 5 operation timing records.
+	// +optional
+	OperationTiming []OperationTimingEntry `json:"operationTiming,omitempty"`
 }
 
 // +kubebuilder:object:root=true

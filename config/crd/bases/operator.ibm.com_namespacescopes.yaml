@@ -115,6 +115,52 @@ spec:
                 items:
                   type: string
                 type: array
+              operationTiming:
+                description: OperationTiming contains the latest 5 operation timing
+                  records.
+                items:
+                  description: OperationTimingEntry records timing information for
+                    an operation
+                  properties:
+                    dependencyTime:
+                      items:
+                        description: DependencyTime records timing information for
+                          a dependency
+                        properties:
+                          component:
+                            type: string
+                          dependencyDuration:
+                            type: string
+                          readyTime:
+                            format: date-time
+                            type: string
+                          startTime:
+                            format: date-time
+                            type: string
+                        required:
+                        - component
+                        - dependencyDuration
+                        - readyTime
+                        - startTime
+                        type: object
+                      type: array
+                    endTime:
+                      format: date-time
+                      type: string
+                    phase:
+                      type: string
+                    startTime:
+                      format: date-time
+                      type: string
+                    totalDuration:
+                      type: string
+                  required:
+                  - endTime
+                  - phase
+                  - startTime
+                  - totalDuration
+                  type: object
+                type: array
               patchedCSVList:
                 items:
                   type: string
@@ -123,6 +169,16 @@ spec:
                 items:
                   type: string
                 type: array
+              reconcileHistory:
+                description: ReconcileHistory contains up to 3 recent reconcile status
+                  messages/errors.
+                items:
+                  type: string
+                type: array
+              status:
+                description: Status represents the status of the current operation
+                  (e.g. InProgress, Completed, Failed).
+                type: string
               unprojectedRoles:
                 description: |-
                   UnprojectedRoles contains Roles that could not be projected due to insufficient permissions.

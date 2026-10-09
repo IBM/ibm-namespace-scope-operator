@@ -825,17 +825,6 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string, allowSubsetProjection bool) ([]string, error) {
-	// Get the permissions that NamespaceScope Operator has from the toNs
-	nssManagedRole := &rbacv1.Role{}
-	if err := r.Reader.Get(ctx, types.NamespacedName{Name: constant.NamespaceScopeManagedPrefix + fromNs, Namespace: toNs}, nssManagedRole); err != nil {
-		if errors.IsNotFound(err) {
-			klog.Errorf("Role %s not found in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
-			return nil, err
-		}
-		klog.Errorf("Failed to get role %s in namespace %s: %v", constant.NamespaceScopeManagedPrefix+fromNs, toNs, err)
-		return nil, err
-	}
-
 	var unprojectedRoles []string
 
 	for _, roleName := range roleNames {
@@ -859,7 +848,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRole.Rules)
+		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules)
 
 		if !canProject {
 			if allowSubsetProjection {
@@ -1178,20 +1167,18 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
+func rulesFilter(roleName, fromNs, toNs string, orgRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
 	verbMap := make(map[string]struct{})
 	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
 	for _, v := range verbs {
 		verbMap[v] = struct{}{}
 	}
-	needRuleAppending := false
 	for i := 0; i < len(orgRule); {
 		// filter out the wildcard in APIGroups
 		for j := 0; j < len(orgRule[i].APIGroups); {
 			if orgRule[i].APIGroups[j] == "*" {
 				orgRule[i].APIGroups = append(orgRule[i].APIGroups[:j], orgRule[i].APIGroups[j+1:]...)
 				klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
-				needRuleAppending = true
 				continue
 			}
 			j++
@@ -1205,7 +1192,6 @@ func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1
 			if orgRule[i].Resources[j] == "*" {
 				orgRule[i].Resources = append(orgRule[i].Resources[:j], orgRule[i].Resources[j+1:]...)
 				klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
-				needRuleAppending = true
 				continue
 			}
 			j++
@@ -1234,11 +1220,6 @@ func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1
 			continue
 		}
 		i++
-	}
-
-	if needRuleAppending {
-		orgRule = append(orgRule, nssManagedRule...)
-		klog.Infof("Role %s has been appended with role %s in namespace %s", roleName, constant.NamespaceScopeManagedPrefix+fromNs, toNs)
 	}
 
 	// Return false if no rules remain after filtering (cannot project)

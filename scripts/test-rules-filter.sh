@@ -11,7 +11,8 @@
 #
 # Prerequisites:
 #   - kubectl available on PATH
-#   - Role nss-managed-role-from-<fromNs> must exist in <toNs>.
+#   - Role nss-managed-role-from-<fromNs> must exist in <toNs> and must be a
+#     restricted Role with explicit rules (no * in apiGroups/resources).
 #   - A NamespaceScope CR must already exist in <fromNs> with <toNs> listed
 #     in spec.namespaceMembers, and the operator must be running.
 #   - You need patch permission on the NamespaceScope CR and create/delete
@@ -61,6 +62,27 @@ if ! $KCL get role "$MANAGED_ROLE" -n "$TO_NS" >/dev/null 2>&1; then
     echo "       Wildcard rules can only be projected when this Role exists." >&2
     exit 1
 fi
+
+# A wildcard in the managed Role cannot be intersected with a wildcard in a source Role,
+# so such rules would be dropped instead of projected.
+MANAGED_WILDCARDS=$($KCL get role "$MANAGED_ROLE" -n "$TO_NS" \
+    -o jsonpath='{range .rules[*]}{.apiGroups[*]} {.resources[*]}{"\n"}{end}' 2>/dev/null \
+    | tr ' ' '\n' | grep -cx '\*' || true)
+if [[ "$MANAGED_WILDCARDS" != "0" ]]; then
+    echo -e "${RED}ERROR${NC}: Role $MANAGED_ROLE in $TO_NS contains a wildcard * in apiGroups or resources." >&2
+    echo "       Replace it with a restricted Role with explicit rules (e.g. nss-managed-bedrock-core-role.yaml)." >&2
+    exit 1
+fi
+
+# A core-group resource the managed Role does not cover, used to check that projected Roles stay within it.
+MANAGED_RESOURCES=$($KCL get role "$MANAGED_ROLE" -n "$TO_NS" -o jsonpath='{.rules[*].resources[*]}' 2>/dev/null | tr ' ' '\n')
+OUTSIDE_RESOURCE=""
+for candidate in limitranges podtemplates resourcequotas; do
+    if ! grep -qx "$candidate" <<<"$MANAGED_RESOURCES"; then
+        OUTSIDE_RESOURCE="$candidate"
+        break
+    fi
+done
 
 # ── find the NamespaceScope CR ───────────────────────────────────────────────
 info "Looking for NamespaceScope CR in $FROM_NS …"
@@ -416,6 +438,16 @@ echo ""
 echo "Case 6 — apiGroups:[\"apps\",\"*\"], resources:[\"deployments\"], verbs:[\"get\"]  → apps part kept, wildcard part from $MANAGED_ROLE, get only"
 check_projected_capped "$ROLE_MIXED" "case6(mixed)" "get"
 check_projected_has_rule "$ROLE_MIXED" "case6(mixed)" "apps" "deployments"
+
+echo ""
+echo "Case 7 — projected Roles never exceed $MANAGED_ROLE"
+if [[ -n "$OUTSIDE_RESOURCE" ]]; then
+    # All test Roles are bound to the same SA and none of them grants this resource,
+    # and $MANAGED_ROLE does not cover it, so the SA must not be able to read it.
+    assert_cannot "case7(within-managed)" get "$OUTSIDE_RESOURCE"
+else
+    info "case7(within-managed): skipped, $MANAGED_ROLE covers all candidate resources"
+fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

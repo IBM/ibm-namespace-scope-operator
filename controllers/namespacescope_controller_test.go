@@ -464,6 +464,20 @@ func TestRulesFilterWildcardIsLimitedByManagedRole(t *testing.T) {
 			canProject: false,
 		},
 		{
+			name:       "managed role with wildcard is never appended or copied",
+			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+			managed:    []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}}},
+			want:       nil,
+			canProject: false,
+		},
+		{
+			name:       "wildcard rule that matches nothing in managed role is not projected",
+			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"configmaps"}, Verbs: []string{"get"}}},
+			managed:    []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get", "update"}}},
+			want:       nil,
+			canProject: false,
+		},
+		{
 			name:       "source resourceNames not matching managed resourceNames are dropped",
 			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"secrets"}, ResourceNames: []string{"other"}, Verbs: []string{"get"}}},
 			managed:    []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}}},

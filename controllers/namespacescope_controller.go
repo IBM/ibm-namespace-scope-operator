@@ -825,6 +825,21 @@ func (r *NamespaceScopeReconciler) GetRolesFromServiceAccount(ctx context.Contex
 }
 
 func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []string, labels map[string]string, saName, fromNs, toNs string, allowSubsetProjection bool) ([]string, error) {
+	// The permissions that NamespaceScope Operator itself holds in toNs cap what a wildcard rule can be expanded to.
+	var nssManagedRules []rbacv1.PolicyRule
+	nssManagedRole := &rbacv1.Role{}
+	nssManagedRoleName := constant.NamespaceScopeManagedPrefix + fromNs
+	if err := r.Reader.Get(ctx, types.NamespacedName{Name: nssManagedRoleName, Namespace: toNs}, nssManagedRole); err != nil {
+		if !errors.IsNotFound(err) {
+			klog.Errorf("Failed to get role %s in namespace %s: %v", nssManagedRoleName, toNs, err)
+			return nil, err
+		}
+		// Without the managed role, wildcard rules cannot be expanded and are dropped.
+		klog.Warningf("Role %s not found in namespace %s, rules with wildcard * in APIGroups or Resources will not be projected", nssManagedRoleName, toNs)
+	} else {
+		nssManagedRules = nssManagedRole.Rules
+	}
+
 	var unprojectedRoles []string
 
 	for _, roleName := range roleNames {
@@ -848,7 +863,7 @@ func (r *NamespaceScopeReconciler) CreateRole(ctx context.Context, roleNames []s
 		hashedServiceAccount := sha256.Sum256([]byte(roleName + saName + fromNs))
 		name := strings.Split(roleName, ".")[0] + "-" + hex.EncodeToString(hashedServiceAccount[:7])
 		namespace := toNs
-		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules)
+		rules, canProject := rulesFilter(roleName, fromNs, toNs, originalRole.Rules, nssManagedRules)
 
 		if !canProject {
 			if allowSubsetProjection {
@@ -1167,64 +1182,159 @@ func (r *NamespaceScopeReconciler) checkGetNSAuth(ctx context.Context) bool {
 	return sar.Status.Allowed
 }
 
-func rulesFilter(roleName, fromNs, toNs string, orgRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
-	verbMap := make(map[string]struct{})
-	verbs := []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
-	for _, v := range verbs {
-		verbMap[v] = struct{}{}
+// supportedVerbs is the set of verbs that can be projected; a wildcard * in Verbs expands to these.
+var supportedVerbs = []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}
+
+// normalizeVerbs expands * to supportedVerbs, drops unsupported verbs and removes duplicates.
+func normalizeVerbs(verbs []string) []string {
+	supported := make(map[string]struct{}, len(supportedVerbs))
+	for _, v := range supportedVerbs {
+		supported[v] = struct{}{}
 	}
-	for i := 0; i < len(orgRule); {
-		// filter out the wildcard in APIGroups
-		for j := 0; j < len(orgRule[i].APIGroups); {
-			if orgRule[i].APIGroups[j] == "*" {
-				orgRule[i].APIGroups = append(orgRule[i].APIGroups[:j], orgRule[i].APIGroups[j+1:]...)
-				klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
-				continue
-			}
-			j++
+	var result []string
+	seen := make(map[string]struct{})
+	add := func(v string) {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			result = append(result, v)
 		}
-		if len(orgRule[i].APIGroups) == 0 {
-			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+	}
+	for _, v := range verbs {
+		if v == "*" {
+			for _, sv := range supportedVerbs {
+				add(sv)
+			}
 			continue
 		}
-		// filter out the wildcard in Resources
-		for j := 0; j < len(orgRule[i].Resources); {
-			if orgRule[i].Resources[j] == "*" {
-				orgRule[i].Resources = append(orgRule[i].Resources[:j], orgRule[i].Resources[j+1:]...)
-				klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is removed from its copied Role in namespace %s", roleName, fromNs, toNs)
-				continue
-			}
-			j++
+		if _, ok := supported[v]; ok {
+			add(v)
 		}
-		if len(orgRule[i].Resources) == 0 {
-			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+	}
+	return result
+}
+
+// splitWildcard returns the entries of list other than *, and whether * was present.
+func splitWildcard(list []string) ([]string, bool) {
+	var result []string
+	wildcard := false
+	for _, s := range list {
+		if s == "*" {
+			wildcard = true
+			continue
+		}
+		result = append(result, s)
+	}
+	return result, wildcard
+}
+
+// intersectStrings returns the entries of a that are also in b, in the order of a and without duplicates.
+func intersectStrings(a, b []string) []string {
+	inB := make(map[string]struct{}, len(b))
+	for _, s := range b {
+		inB[s] = struct{}{}
+	}
+	var result []string
+	seen := make(map[string]struct{})
+	for _, s := range a {
+		if _, ok := inB[s]; !ok {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		result = append(result, s)
+	}
+	return result
+}
+
+// intersectResourceNames intersects two ResourceNames lists, where an empty list means all names.
+// The bool is false when both lists restrict names and have nothing in common.
+func intersectResourceNames(a, b []string) ([]string, bool) {
+	if len(a) == 0 {
+		return append([]string(nil), b...), true
+	}
+	if len(b) == 0 {
+		return append([]string(nil), a...), true
+	}
+	result := intersectStrings(a, b)
+	return result, len(result) > 0
+}
+
+// rulesFilter returns the rules of a Role that can be projected into toNs.
+// A wildcard * in APIGroups or Resources is never copied. Instead it is replaced by the
+// rules of nssManagedRule (the permissions NamespaceScope Operator holds in toNs) that
+// match the rest of the source rule, with Verbs and ResourceNames limited to what both
+// rules allow. The result therefore never exceeds the source rule or nssManagedRule.
+// The input slices are not modified.
+func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
+	var result []rbacv1.PolicyRule
+
+	for _, src := range orgRule {
+		rule := src.DeepCopy()
+		if len(rule.APIGroups) == 0 || len(rule.Resources) == 0 {
+			continue
+		}
+		verbs := normalizeVerbs(rule.Verbs)
+		if len(verbs) == 0 {
 			continue
 		}
 
-		for j := 0; j < len(orgRule[i].Verbs); {
-			if orgRule[i].Verbs[j] == "*" {
-				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
-				orgRule[i].Verbs = append(orgRule[i].Verbs, verbs...)
-				klog.Warningf("Role %s in namespace %s has wildcard * in Verbs, which is replaced with all verbs in its copied Role in namespace %s", roleName, fromNs, toNs)
-				continue
-			}
-			if _, ok := verbMap[orgRule[i].Verbs[j]]; !ok {
-				orgRule[i].Verbs = append(orgRule[i].Verbs[:j], orgRule[i].Verbs[j+1:]...)
-				continue
-			}
-			j++
+		groups, groupWildcard := splitWildcard(rule.APIGroups)
+		resources, resourceWildcard := splitWildcard(rule.Resources)
+		if groupWildcard {
+			klog.Warningf("Role %s in namespace %s has wildcard * in APIGroups, which is replaced with the permissions of the operator in its copied Role in namespace %s", roleName, fromNs, toNs)
+		}
+		if resourceWildcard {
+			klog.Warningf("Role %s in namespace %s has wildcard * in Resources, which is replaced with the permissions of the operator in its copied Role in namespace %s", roleName, fromNs, toNs)
 		}
 
-		if len(orgRule[i].Verbs) == 0 {
-			orgRule = append(orgRule[:i], orgRule[i+1:]...)
+		// The part of the rule without wildcard is copied as is.
+		if len(groups) > 0 && len(resources) > 0 {
+			result = append(result, rbacv1.PolicyRule{
+				APIGroups:     groups,
+				Resources:     resources,
+				ResourceNames: rule.ResourceNames,
+				Verbs:         verbs,
+			})
+		}
+
+		if !groupWildcard && !resourceWildcard {
 			continue
 		}
-		i++
+
+		// The wildcard part is limited to what the operator itself is allowed to do in toNs.
+		for _, managed := range nssManagedRule {
+			managedVerbs := intersectStrings(verbs, normalizeVerbs(managed.Verbs))
+			if len(managedVerbs) == 0 {
+				continue
+			}
+			managedGroups, _ := splitWildcard(managed.APIGroups)
+			if !groupWildcard {
+				managedGroups = intersectStrings(groups, managedGroups)
+			}
+			managedResources, _ := splitWildcard(managed.Resources)
+			if !resourceWildcard {
+				managedResources = intersectStrings(resources, managedResources)
+			}
+			if len(managedGroups) == 0 || len(managedResources) == 0 {
+				continue
+			}
+			resourceNames, ok := intersectResourceNames(rule.ResourceNames, managed.ResourceNames)
+			if !ok {
+				continue
+			}
+			result = append(result, rbacv1.PolicyRule{
+				APIGroups:     managedGroups,
+				Resources:     managedResources,
+				ResourceNames: resourceNames,
+				Verbs:         managedVerbs,
+			})
+		}
 	}
 
 	// Return false if no rules remain after filtering (cannot project)
-	canProject := len(orgRule) > 0
-	return orgRule, canProject
+	return result, len(result) > 0
 }
 
 func (r *NamespaceScopeReconciler) getValidatedNamespaces(ctx context.Context, instance *operatorv1.NamespaceScope) ([]string, error) {

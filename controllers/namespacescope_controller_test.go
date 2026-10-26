@@ -23,9 +23,11 @@ import (
 	"testing"
 
 	operatorv1 "github.com/IBM/ibm-namespace-scope-operator/v4/api/v1"
+	"github.com/IBM/ibm-namespace-scope-operator/v4/controllers/constant"
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -231,6 +233,9 @@ func newNamespaceScopeTestClient(t *testing.T, objects ...client.Object) client.
 	if err := authorizationv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add authorization scheme: %v", err)
 	}
+	if err := rbacv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add rbac scheme: %v", err)
+	}
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add core scheme: %v", err)
 	}
@@ -367,3 +372,196 @@ func TestRecordOperationTimingAndStatusFailureAndRollingLimit(t *testing.T) {
 	}
 }
 
+func TestRulesFilterWildcardIsLimitedByManagedRole(t *testing.T) {
+	managed := []rbacv1.PolicyRule{
+		{APIGroups: []string{""}, Resources: []string{"configmaps", "secrets"}, Verbs: []string{"get", "list", "create", "delete"}},
+		{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get", "update"}},
+		{APIGroups: []string{"ibm.com"}, Resources: []string{"resourceplans"}, Verbs: []string{"get", "deletecollection"}},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}},
+	}
+
+	tests := []struct {
+		name       string
+		src        []rbacv1.PolicyRule
+		managed    []rbacv1.PolicyRule
+		want       []rbacv1.PolicyRule
+		canProject bool
+	}{
+		{
+			name:    "both wildcards with read-only verbs never grant write verbs",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+			managed: managed,
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"configmaps", "secrets"}, Verbs: []string{"get"}},
+				{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}},
+				{APIGroups: []string{"ibm.com"}, Resources: []string{"resourceplans"}, Verbs: []string{"get"}},
+				{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "ODLM style both wildcards with several verbs",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch"}}},
+			managed: managed,
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"configmaps", "secrets"}, Verbs: []string{"create", "delete", "get", "list"}},
+				{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get", "update"}},
+				{APIGroups: []string{"ibm.com"}, Resources: []string{"resourceplans"}, Verbs: []string{"get"}},
+				{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "wildcard verbs are expanded and limited by managed role",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"*"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"ibm.com"}, Resources: []string{"resourceplans"}, Verbs: []string{"get", "deletecollection"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"ibm.com"}, Resources: []string{"resourceplans"}, Verbs: []string{"get", "deletecollection"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "apiGroups wildcard with explicit resources",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"secrets"}, Verbs: []string{"get", "delete"}}},
+			managed: managed,
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get", "delete"}},
+				{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "resources wildcard with explicit apiGroups",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"*"}, Verbs: []string{"get", "delete"}}},
+			managed: managed,
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "mixed list keeps the explicit part and expands the wildcard part",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"batch", "*"}, Resources: []string{"jobs"}, Verbs: []string{"get"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"batch"}, Resources: []string{"jobs", "cronjobs"}, Verbs: []string{"get", "create"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get"}},
+				{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:       "rule without wildcard is copied and does not need managed role",
+			src:        []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get", "bogus"}}},
+			managed:    nil,
+			want:       []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}}},
+			canProject: true,
+		},
+		{
+			name:       "wildcard rule without managed role is dropped",
+			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+			managed:    nil,
+			want:       nil,
+			canProject: false,
+		},
+		{
+			name:       "source resourceNames not matching managed resourceNames are dropped",
+			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"secrets"}, ResourceNames: []string{"other"}, Verbs: []string{"get"}}},
+			managed:    []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"cert"}, Verbs: []string{"get"}}},
+			want:       nil,
+			canProject: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srcBefore := make([]rbacv1.PolicyRule, len(tt.src))
+			for i := range tt.src {
+				srcBefore[i] = *tt.src[i].DeepCopy()
+			}
+
+			got, canProject := rulesFilter("role", "from", "to", tt.src, tt.managed)
+
+			if canProject != tt.canProject {
+				t.Fatalf("canProject = %v, want %v (rules: %+v)", canProject, tt.canProject, got)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("rules = %+v, want %+v", got, tt.want)
+			}
+			if !reflect.DeepEqual(tt.src, srcBefore) {
+				t.Fatalf("source rules were modified: %+v, want %+v", tt.src, srcBefore)
+			}
+		})
+	}
+}
+
+func TestCreateRoleExpandsWildcardWithManagedRole(t *testing.T) {
+	ctx := context.Background()
+	source := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "odlm", Namespace: "from"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "delete"}}},
+	}
+	managed := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: constant.NamespaceScopeManagedPrefix + "from", Namespace: "to"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get", "create"}}},
+	}
+	r, c := newNamespaceScopeTestReconciler(t, source, managed)
+
+	unprojected, err := r.CreateRole(ctx, []string{"odlm"}, nil, "sa", "from", "to", false)
+	if err != nil {
+		t.Fatalf("CreateRole returned an error: %v", err)
+	}
+	if len(unprojected) != 0 {
+		t.Fatalf("unexpected unprojected roles: %v", unprojected)
+	}
+
+	roles := &rbacv1.RoleList{}
+	if err := c.List(ctx, roles, client.InNamespace("to")); err != nil {
+		t.Fatalf("list roles: %v", err)
+	}
+	var projected *rbacv1.Role
+	for i := range roles.Items {
+		if roles.Items[i].Name != managed.Name {
+			projected = &roles.Items[i]
+		}
+	}
+	if projected == nil {
+		t.Fatal("expected a projected role in the target namespace")
+	}
+	want := []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}}}
+	if !reflect.DeepEqual(projected.Rules, want) {
+		t.Fatalf("projected rules = %+v, want %+v", projected.Rules, want)
+	}
+}
+
+func TestCreateRoleWithoutManagedRole(t *testing.T) {
+	ctx := context.Background()
+	source := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: "odlm", Namespace: "from"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+	}
+
+	t.Run("allowSubsetProjection skips the role", func(t *testing.T) {
+		r, c := newNamespaceScopeTestReconciler(t, source.DeepCopy())
+		unprojected, err := r.CreateRole(ctx, []string{"odlm"}, nil, "sa", "from", "to", true)
+		if err != nil {
+			t.Fatalf("CreateRole returned an error: %v", err)
+		}
+		if len(unprojected) != 1 {
+			t.Fatalf("unprojected = %v, want one entry", unprojected)
+		}
+		roles := &rbacv1.RoleList{}
+		if err := c.List(ctx, roles, client.InNamespace("to")); err != nil {
+			t.Fatalf("list roles: %v", err)
+		}
+		if len(roles.Items) != 0 {
+			t.Fatalf("expected no projected role, got %+v", roles.Items)
+		}
+	})
+
+	t.Run("without allowSubsetProjection returns an error", func(t *testing.T) {
+		r, _ := newNamespaceScopeTestReconciler(t, source.DeepCopy())
+		if _, err := r.CreateRole(ctx, []string{"odlm"}, nil, "sa", "from", "to", false); err == nil {
+			t.Fatal("expected an error when no rule can be projected")
+		}
+	})
+}

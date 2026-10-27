@@ -464,9 +464,45 @@ func TestRulesFilterWildcardIsLimitedByManagedRole(t *testing.T) {
 			canProject: false,
 		},
 		{
-			name:       "managed role with wildcard is never appended or copied",
+			name:    "full admin managed role (authorize-namespace.sh) never grants more verbs than the source",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "ODLM style rule with full admin managed role is projected with the source verbs",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "source wildcard apiGroups with explicit resources against full admin managed role",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"configmaps"}, Verbs: []string{"get"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "update"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"*"}, Resources: []string{"configmaps"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:    "explicit source apiGroups with wildcard resources against full admin managed role",
+			src:     []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
+			managed: []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "update"}}},
+			want: []rbacv1.PolicyRule{
+				{APIGroups: []string{"apps"}, Resources: []string{"*"}, Verbs: []string{"get"}},
+			},
+			canProject: true,
+		},
+		{
+			name:       "full admin managed role without a matching verb does not project",
 			src:        []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get"}}},
-			managed:    []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"}}},
+			managed:    []rbacv1.PolicyRule{{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"create"}}},
 			want:       nil,
 			canProject: false,
 		},

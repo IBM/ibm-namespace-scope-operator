@@ -4,15 +4,17 @@
 # A wildcard * in apiGroups/resources of a source Role must be replaced by the
 # rules of nss-managed-role-from-<fromNs> (the operator's own permissions in
 # <toNs>), with verbs limited to what the source rule allows. The projected Role
-# must never contain a wildcard and must never grant more than the source rule.
+# must never grant more than the source rule or the managed Role. A * is kept only
+# where the managed Role has a * as well (e.g. the full namespace admin Role created
+# by scripts/authorize-namespace.sh).
 #
 # Usage:
 #   ./scripts/test-rules-filter.sh <fromNs> <toNs> [kubectl-context]
 #
 # Prerequisites:
 #   - kubectl available on PATH
-#   - Role nss-managed-role-from-<fromNs> must exist in <toNs> and must be a
-#     restricted Role with explicit rules (no * in apiGroups/resources).
+#   - Role nss-managed-role-from-<fromNs> must exist in <toNs>. It can be either a
+#     restricted Role with explicit rules or the full namespace admin Role.
 #   - A NamespaceScope CR must already exist in <fromNs> with <toNs> listed
 #     in spec.namespaceMembers, and the operator must be running.
 #   - You need patch permission on the NamespaceScope CR and create/delete
@@ -63,26 +65,23 @@ if ! $KCL get role "$MANAGED_ROLE" -n "$TO_NS" >/dev/null 2>&1; then
     exit 1
 fi
 
-# A wildcard in the managed Role cannot be intersected with a wildcard in a source Role,
-# so such rules would be dropped instead of projected.
+# A wildcard in the managed Role (full namespace admin) matches everything, so projected
+# Roles may keep a * and there is no resource outside of it.
 MANAGED_WILDCARDS=$($KCL get role "$MANAGED_ROLE" -n "$TO_NS" \
     -o jsonpath='{range .rules[*]}{.apiGroups[*]} {.resources[*]}{"\n"}{end}' 2>/dev/null \
     | tr ' ' '\n' | grep -cx '\*' || true)
-if [[ "$MANAGED_WILDCARDS" != "0" ]]; then
-    echo -e "${RED}ERROR${NC}: Role $MANAGED_ROLE in $TO_NS contains a wildcard * in apiGroups or resources." >&2
-    echo "       Replace it with a restricted Role with explicit rules (e.g. nss-managed-bedrock-core-role.yaml)." >&2
-    exit 1
-fi
 
 # A core-group resource the managed Role does not cover, used to check that projected Roles stay within it.
 MANAGED_RESOURCES=$($KCL get role "$MANAGED_ROLE" -n "$TO_NS" -o jsonpath='{.rules[*].resources[*]}' 2>/dev/null | tr ' ' '\n')
 OUTSIDE_RESOURCE=""
-for candidate in limitranges podtemplates resourcequotas; do
-    if ! grep -qx "$candidate" <<<"$MANAGED_RESOURCES"; then
-        OUTSIDE_RESOURCE="$candidate"
-        break
-    fi
-done
+if [[ "$MANAGED_WILDCARDS" == "0" ]]; then
+    for candidate in limitranges podtemplates resourcequotas; do
+        if ! grep -qx "$candidate" <<<"$MANAGED_RESOURCES"; then
+            OUTSIDE_RESOURCE="$candidate"
+            break
+        fi
+    done
+fi
 
 # ── find the NamespaceScope CR ───────────────────────────────────────────────
 info "Looking for NamespaceScope CR in $FROM_NS …"
@@ -315,8 +314,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 SA_REF="system:serviceaccount:${FROM_NS}:${SA}"
 
 # Expect: the Role is projected, the wildcard is replaced by the operator's own
-# permissions in toNs (nss-managed-role-from-<fromNs>), no wildcard is left, and
-# every projected verb is one of the space-separated verbs in $3 (the source verbs).
+# permissions in toNs (nss-managed-role-from-<fromNs>), no wildcard verb is left, a
+# wildcard in apiGroups/resources is left only if the managed Role has one, and every
+# projected verb is one of the space-separated verbs in $3 (the source verbs).
 check_projected_capped() {
     local role="$1" label="$2" allowed="$3"
     local proj
@@ -331,9 +331,15 @@ check_projected_capped() {
     rules=$($KCL get role "$proj" -n "$TO_NS" -o jsonpath='{.rules}' 2>/dev/null)
     verbs=$($KCL get role "$proj" -n "$TO_NS" -o jsonpath='{range .rules[*]}{.verbs[*]}{"\n"}{end}' 2>/dev/null \
         | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
-    wildcards=$($KCL get role "$proj" -n "$TO_NS" \
-        -o jsonpath='{range .rules[*]}{.apiGroups[*]} {.resources[*]} {.verbs[*]}{"\n"}{end}' 2>/dev/null \
-        | tr ' ' '\n' | grep -cx '\*' || true)
+    if [[ "$MANAGED_WILDCARDS" == "0" ]]; then
+        wildcards=$($KCL get role "$proj" -n "$TO_NS" \
+            -o jsonpath='{range .rules[*]}{.apiGroups[*]} {.resources[*]} {.verbs[*]}{"\n"}{end}' 2>/dev/null \
+            | tr ' ' '\n' | grep -cx '\*' || true)
+    else
+        wildcards=$($KCL get role "$proj" -n "$TO_NS" \
+            -o jsonpath='{range .rules[*]}{.verbs[*]}{"\n"}{end}' 2>/dev/null \
+            | tr ' ' '\n' | grep -cx '\*' || true)
+    fi
 
     for v in $verbs; do
         [[ " $allowed " == *" $v "* ]] || bad+="$v "

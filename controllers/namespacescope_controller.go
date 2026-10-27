@@ -1261,11 +1261,30 @@ func intersectResourceNames(a, b []string) ([]string, bool) {
 	return result, len(result) > 0
 }
 
+// intersectWithWildcard intersects a with b, where a * in either side matches everything.
+// aWild reports that a stood for all values; a holds the remaining explicit entries.
+// The result keeps * only when both sides are wildcards.
+func intersectWithWildcard(a []string, aWild bool, b []string) []string {
+	b, bWild := splitWildcard(b)
+	switch {
+	case aWild && bWild:
+		return []string{"*"}
+	case aWild:
+		return b
+	case bWild:
+		return a
+	default:
+		return intersectStrings(a, b)
+	}
+}
+
 // rulesFilter returns the rules of a Role that can be projected into toNs.
-// A wildcard * in APIGroups or Resources is never copied. Instead it is replaced by the
-// rules of nssManagedRule (the permissions NamespaceScope Operator holds in toNs) that
-// match the rest of the source rule, with Verbs and ResourceNames limited to what both
-// rules allow. The result therefore never exceeds the source rule or nssManagedRule.
+// A wildcard * in APIGroups or Resources of the source is never copied. Instead it is
+// replaced by the rules of nssManagedRule (the permissions NamespaceScope Operator holds
+// in toNs) that match the rest of the source rule, with Verbs and ResourceNames limited
+// to what both rules allow. A * in nssManagedRule matches everything, so a source wildcard
+// against a managed wildcard stays a wildcard. The result therefore never exceeds the
+// source rule or nssManagedRule.
 // The input slices are not modified.
 func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1.PolicyRule) ([]rbacv1.PolicyRule, bool) {
 	var result []rbacv1.PolicyRule
@@ -1309,14 +1328,8 @@ func rulesFilter(roleName, fromNs, toNs string, orgRule, nssManagedRule []rbacv1
 			if len(managedVerbs) == 0 {
 				continue
 			}
-			managedGroups, _ := splitWildcard(managed.APIGroups)
-			if !groupWildcard {
-				managedGroups = intersectStrings(groups, managedGroups)
-			}
-			managedResources, _ := splitWildcard(managed.Resources)
-			if !resourceWildcard {
-				managedResources = intersectStrings(resources, managedResources)
-			}
+			managedGroups := intersectWithWildcard(groups, groupWildcard, managed.APIGroups)
+			managedResources := intersectWithWildcard(resources, resourceWildcard, managed.Resources)
 			if len(managedGroups) == 0 || len(managedResources) == 0 {
 				continue
 			}
